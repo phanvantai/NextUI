@@ -4532,6 +4532,14 @@ static void PWR_exitSleep(void)
 	sync();
 }
 
+// custom: "Keep awake when plugged in" covers a charger (even with a full
+// battery, which isn't is_charging) as well as a computer
+static int PWR_keepAwakePluggedIn(void)
+{
+	return CFG_getKeepAwakeWhenUSB() &&
+		   (SDL_AtomicGet(&pwr.is_power_connected) || SDL_AtomicGet(&pwr.is_usb_connected));
+}
+
 static void PWR_waitForWake(void)
 {
 	uint32_t sleep_ticks = SDL_GetTicks();
@@ -4549,8 +4557,7 @@ static void PWR_waitForWake(void)
 			SDL_Delay(200);
 			if (SDL_GetTicks() - sleep_ticks >= sleepDelay)
 			{ // increased to two minutes
-				if (SDL_AtomicGet(&pwr.is_charging) || SDL_AtomicGet(&pwr.is_power_connected) ||
-					(CFG_getKeepAwakeWhenUSB() && SDL_AtomicGet(&pwr.is_usb_connected)))
+				if (SDL_AtomicGet(&pwr.is_charging) || PWR_keepAwakePluggedIn())
 				{
 					sleep_ticks += 60000; // check again in a minute
 					continue;
@@ -4631,8 +4638,7 @@ void PWR_enableAutosleep(void)
 }
 int PWR_preventAutosleep(void)
 {
-	return SDL_AtomicGet(&pwr.is_charging) || SDL_AtomicGet(&pwr.is_power_connected) || !pwr.can_autosleep || GetHDMI() ||
-		   (CFG_getKeepAwakeWhenUSB() && SDL_AtomicGet(&pwr.is_usb_connected));
+	return SDL_AtomicGet(&pwr.is_charging) || !pwr.can_autosleep || GetHDMI() || PWR_keepAwakePluggedIn();
 }
 
 // updated by PWR_updateBatteryStatus()

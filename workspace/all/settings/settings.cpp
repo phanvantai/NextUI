@@ -712,7 +712,7 @@ int main(int argc, char *argv[])
         if(deviceInfo.getPlatform() == DeviceInfo::tg5040 || deviceInfo.getPlatform() == DeviceInfo::h700)
         {
             systemItems.push_back(
-                new MenuItem{ListItemType::Generic, "Keep awake over USB", "Prevent screen-off and sleep while connected to a\ncomputer as a USB device (not just charging).", {false, true}, on_off,
+                new MenuItem{ListItemType::Generic, "Keep awake when plugged in", "Prevent screen-off and sleep while connected to\na charger or a computer, even with a full battery.", {false, true}, on_off,
                 []() -> std::any { return CFG_getKeepAwakeWhenUSB(); },
                 [](const std::any &value) { CFG_setKeepAwakeWhenUSB(std::any_cast<bool>(value)); },
                 []() { CFG_setKeepAwakeWhenUSB(CFG_DEFAULT_KEEPAWAKEWHENUSB); }}
