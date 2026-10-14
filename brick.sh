@@ -57,6 +57,10 @@ push() {
 		adb -s "$serial" push "$elf" "$dir/$name.new" </dev/null
 		adb -s "$serial" shell "cd '$dir' && { [ -f $name.orig ] || cp $name $name.orig; } && mv $name.new $name && chmod +x $name" </dev/null
 	done <<< "$ELFS"
+	# Settings > About reads version.txt; mark builds with uncommitted changes
+	local hash
+	hash=$(git rev-parse --short HEAD)$(git diff --quiet HEAD -- workspace || echo -dirty)
+	adb -s "$serial" shell "printf 'NextUI Brick v%s\\n%s\\n' '$(cat VERSION)' '$hash' > $SYSTEM/../version.txt"
 	restart "$serial"
 }
 
