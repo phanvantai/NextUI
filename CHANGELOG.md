@@ -10,6 +10,18 @@ version, bumps `VERSION` and tags the commit.
 
 ## Unreleased
 
+## 0.5.0
+
+- Turning Wifi or Bluetooth on/off no longer freezes the UI (wifi_init.sh
+  takes ~6s to start Wifi): the script runs in the background and the hint
+  reads "Turning on..." until it's done.
+- The settings page no longer hides the Updater; it and the Pak Store were
+  removed from the device instead.
+- Settings page: Wifi, Bluetooth, Reboot and Power off are a row of icon
+  buttons along the bottom instead of list rows. Down from the last app moves
+  into the row, left/right picks, up goes back; the hint says what A does
+  ("Turn off", "Reboot"...). Wifi/Bluetooth icons follow their state.
+
 ## 0.4.0
 
 - Game switcher has no BACK: it's the home screen, SELECT flips to the list.
