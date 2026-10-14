@@ -1759,6 +1759,16 @@ static void openSettings(void) {
 	Array_push(stack, top);
 }
 
+// Returns 1 when the settings page was opened from the switcher and that's
+// where the user should go back to. A file in /tmp rather than a variable so it
+// survives NextUI restarting around a pak launched from the page.
+static int closeSettings(void) {
+	closeDirectory();
+	if (!exists(SETTINGS_FROM_SWITCHER_PATH)) return 0;
+	unlink(SETTINGS_FROM_SWITCHER_PATH);
+	return 1;
+}
+
 ///////////////////////////////////////
 
 static void saveLast(char* path) {
@@ -2678,6 +2688,16 @@ int main (int argc, char *argv[]) {
 				dirty = 1;
 				folderbgchanged = 1; // The background painting code is a clusterfuck, just force a repaint here
 			}
+			else if (PAD_tappedMenu(now)) {
+				// custom: MENU opens the settings page from here too, closing it comes back
+				putFile(SETTINGS_FROM_SWITCHER_PATH, "unused");
+				if (!exactMatch(top->path, FAUX_SETTINGS_PATH)) openSettings();
+				currentScreen = SCREEN_GAMELIST;
+				total = top->entries->count;
+				dirty = 1;
+				folderbgchanged = 1;
+				if (total>0) readyResume(top->entries->items[top->selected]);
+			}
 			else if (switcher->count > 0 && PAD_justReleased(BTN_A)) {
 				// this will drop us back into game switcher after leaving the game
 				putFile(GAME_SWITCHER_PERSIST_PATH, "unused");
@@ -2723,10 +2743,12 @@ int main (int argc, char *argv[]) {
 			if (PAD_tappedMenu(now)) {
 				// custom: MENU toggles the settings page instead of the quick menu
 				if (exactMatch(top->path, FAUX_SETTINGS_PATH)) {
-					closeDirectory();
-					animationdirection = SLIDE_RIGHT;
+					// no list slide when going back to the switcher, it has its own transition
+					if (closeSettings()) currentScreen = SCREEN_GAMESWITCHER;
+					else animationdirection = SLIDE_RIGHT;
 				}
 				else {
+					unlink(SETTINGS_FROM_SWITCHER_PATH);
 					openSettings();
 					animationdirection = SLIDE_LEFT;
 				}
@@ -2858,8 +2880,13 @@ int main (int argc, char *argv[]) {
 				if (total>0) readyResume(top->entries->items[top->selected]);
 			}
 			else if (PAD_justPressed(BTN_B) && stack->count>1) {
-				closeDirectory();
-				animationdirection = SLIDE_RIGHT;
+				// no list slide when going back to the switcher, it has its own transition
+				if (!exactMatch(top->path, FAUX_SETTINGS_PATH)) {
+					closeDirectory();
+					animationdirection = SLIDE_RIGHT;
+				}
+				else if (closeSettings()) currentScreen = SCREEN_GAMESWITCHER;
+				else animationdirection = SLIDE_RIGHT;
 				total = top->entries->count;
 				dirty = 1;
 
@@ -3129,6 +3156,8 @@ int main (int argc, char *argv[]) {
 						SDL_FreeSurface(text1);
 					}
 
+					GFX_blitButtonGroup((char*[]){ "MENU","SETTINGS",  NULL }, 0, screen, 0);
+
 					char* open_label = can_resume ? "RESUME" : "OPEN";
 					if(switcher_selected < switcher_recent_count) GFX_blitButtonGroup((char*[]){ "Y", "REMOVE", "A",open_label, NULL }, 1, screen, 1);
 					else GFX_blitButtonGroup((char*[]){ "A",open_label, NULL }, 1, screen, 1);
@@ -3218,6 +3247,7 @@ int main (int argc, char *argv[]) {
 					SDL_Rect preview_rect = {ox,oy,screen->w,screen->h};
 					SDL_FillRect(screen, &preview_rect, 0);
 					GFX_blitMessage(font.large, "No Games", screen, &preview_rect);
+					GFX_blitButtonGroup((char*[]){ "MENU","SETTINGS",  NULL }, 0, screen, 0);
 				}
 
 				GFX_flipHidden();
@@ -3308,10 +3338,8 @@ int main (int argc, char *argv[]) {
 				// buttons
 				if (show_setting && !GetHDMI()) GFX_blitHardwareHints(screen, show_setting);
 				else if (can_resume) GFX_blitButtonGroup((char*[]){ "X","RESUME",  NULL }, 0, screen, 0);
-				else GFX_blitButtonGroup((char*[]){
-					BTN_SLEEP==BTN_POWER?"POWER":"MENU",
-					BTN_SLEEP==BTN_POWER||simple_mode?"SLEEP":"INFO",
-					NULL }, 0, screen, 0);
+				// custom: MENU opens settings; on the settings page B BACK already says how to leave
+				else if (!exactMatch(top->path, FAUX_SETTINGS_PATH)) GFX_blitButtonGroup((char*[]){ "MENU","SETTINGS",  NULL }, 0, screen, 0);
 
 				if (total==0) {
 					if (stack->count>1) {

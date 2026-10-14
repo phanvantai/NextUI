@@ -30,6 +30,7 @@
 
 #define FAUX_RECENT_PATH SDCARD_PATH "/Recently Played"
 #define FAUX_SETTINGS_PATH SDCARD_PATH "/Settings" // custom: settings page opened with MENU
+#define SETTINGS_FROM_SWITCHER_PATH "/tmp/settings_from_switcher" // custom: close the settings page back into the switcher
 #define COLLECTIONS_PATH SDCARD_PATH "/Collections"
 
 #define LAST_PATH "/tmp/last.txt" // transient
