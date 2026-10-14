@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Dev loop for the TrimUI Brick over adb: build, push nextui.elf, restart the launcher.
 #
-#   ./brick.sh deploy     build tg5040, push nextui.elf + minarch.elf, restart NextUI
+#   ./brick.sh deploy     build tg5040, push nextui, minarch and the Tools paks, restart NextUI
 #   ./brick.sh push       push the last build without rebuilding
 #   ./brick.sh restart    restart NextUI (the launcher loop respawns it)
 #   ./brick.sh restore    put back the stock binaries (saved as <name>.orig)
@@ -18,9 +18,18 @@ cd "$(dirname "$0")"
 
 SYSTEM=/mnt/SDCARD/.system/tg5040
 LOG=/mnt/SDCARD/.userdata/tg5040/logs/nextui.txt
-# binaries that get pushed to $SYSTEM/bin: nextui is the launcher, minarch runs
-# the games (it carries its own copy of the power/sleep code in api.c)
-ELFS="workspace/all/nextui/build/tg5040/nextui.elf workspace/all/minarch/build/tg5040/minarch.elf"
+TOOLS=/mnt/SDCARD/Tools/tg5040
+# "local build|folder on the Brick": every program that draws with api.c, so
+# UI changes there (hint size, power handling) reach all of them. nextui is the
+# launcher, minarch runs the games, the rest are the stock Tools paks.
+# Battery and Clock were removed from this Brick, don't push them back.
+ELFS="workspace/all/nextui/build/tg5040/nextui.elf|$SYSTEM/bin
+workspace/all/minarch/build/tg5040/minarch.elf|$SYSTEM/bin
+workspace/all/settings/build/tg5040/settings.elf|$TOOLS/Settings.pak
+workspace/all/gametime/build/tg5040/gametime.elf|$TOOLS/Game Tracker.pak
+workspace/all/minput/build/tg5040/minput.elf|$TOOLS/Input.pak
+workspace/all/ledcontrol/build/tg5040/ledcontrol.elf|$TOOLS/LedControl.pak
+workspace/all/bootlogo/build/tg5040/bootlogo.elf|$TOOLS/Bootlogo.pak"
 
 find_brick() {
 	if [ -n "${BRICK_SERIAL:-}" ]; then
@@ -38,16 +47,16 @@ find_brick() {
 }
 
 push() {
-	local serial elf name
+	local serial elf dir name
 	serial=$(find_brick)
-	for elf in $ELFS; do
+	while IFS='|' read -r elf dir; do
 		[ -f "$elf" ] || { echo "$elf missing, run ./brick.sh deploy" >&2; exit 1; }
 		name=$(basename "$elf")
 		# push next to the live binary and rename over it, so the running copy is
 		# never truncated. The first push keeps the stock binary as <name>.orig.
-		adb -s "$serial" push "$elf" "$SYSTEM/bin/$name.new"
-		adb -s "$serial" shell "cd $SYSTEM/bin && { [ -f $name.orig ] || cp $name $name.orig; } && mv $name.new $name && chmod +x $name"
-	done
+		adb -s "$serial" push "$elf" "$dir/$name.new" </dev/null
+		adb -s "$serial" shell "cd '$dir' && { [ -f $name.orig ] || cp $name $name.orig; } && mv $name.new $name && chmod +x $name" </dev/null
+	done <<< "$ELFS"
 	restart "$serial"
 }
 
@@ -78,6 +87,12 @@ press() {
 	serial=$(find_brick)
 	dev=$(adb -s "$serial" shell "grep -A4 'TRIMUI Player1' /proc/bus/input/devices | grep -o 'event[0-9]*'" | tr -d '\r')
 	[ -n "$dev" ] || { echo "TRIMUI Player1 input device not found" >&2; exit 1; }
+	# only drive NextUI or a game; a pak in front (Pak Store, Settings…) may be in the user's hands
+	# BRICK_FORCE=1 skips this when you opened the pak yourself and want to drive it
+	if [ -z "${BRICK_FORCE:-}" ] && ! adb -s "$serial" shell "pidof nextui.elf minarch.elf" | grep -q '[0-9]'; then
+		echo "NextUI/minarch not in front (a pak is open?), not sending buttons" >&2
+		exit 1
+	fi
 	syn=$(ev 0 0 0)
 	for btn in "$@"; do
 		case "$btn" in
@@ -117,7 +132,7 @@ case "${1:-deploy}" in
 	restart) restart ;;
 	restore)
 		serial=$(find_brick)
-		adb -s "$serial" shell "cd $SYSTEM/bin && for orig in *.orig; do cp \$orig \${orig%.orig}.new && mv \${orig%.orig}.new \${orig%.orig} && echo restored \${orig%.orig}; done"
+		adb -s "$serial" shell "find $SYSTEM/bin $TOOLS -name '*.elf.orig' | while read orig; do cp \"\$orig\" \"\${orig%.orig}.new\" && mv \"\${orig%.orig}.new\" \"\${orig%.orig}\" && echo \"restored \${orig%.orig}\"; done"
 		restart "$serial" ;;
 	log)     adb -s "$(find_brick)" shell "tail -n 50 -f $LOG" ;;
 	shell)   adb -s "$(find_brick)" shell ;;
