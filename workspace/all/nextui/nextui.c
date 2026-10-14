@@ -2671,7 +2671,8 @@ int main (int argc, char *argv[]) {
 			}
 		}
 		else if(currentScreen == SCREEN_GAMESWITCHER) {
-			if (PAD_justPressed(BTN_B) || PAD_tappedSelect(now)) {
+			// custom: the switcher is the home screen, only SELECT flips to the list
+			if (PAD_tappedSelect(now)) {
 				currentScreen = SCREEN_GAMELIST;
 				switcher_selected = 0;
 				dirty = 1;
@@ -3100,8 +3101,6 @@ int main (int argc, char *argv[]) {
 						SDL_FreeSurface(text);
 					}
 
-					GFX_blitButtonGroup((char*[]){ "B","BACK",  NULL }, 0, screen, 0);
-
 					char* open_label = can_resume ? "RESUME" : "OPEN";
 					if(switcher_selected < switcher_recent_count) GFX_blitButtonGroup((char*[]){ "Y", "REMOVE", "A",open_label, NULL }, 1, screen, 1);
 					else GFX_blitButtonGroup((char*[]){ "A",open_label, NULL }, 1, screen, 1);
@@ -3124,22 +3123,20 @@ int main (int argc, char *argv[]) {
 							float aspectRatio = (float)bmp->w / (float)bmp->h;
 							float screenRatio = (float)screen->w / (float)screen->h;
 
-							// custom: cover the whole screen and crop the overflow
 							if (screenRatio > aspectRatio) {
-								aw = screen->w;
-								ah = (int)(screen->w / aspectRatio);
-							} else {
 								aw = (int)(screen->h * aspectRatio);
 								ah = screen->h;
+							} else {
+								aw = screen->w;
+								ah = (int)(screen->w / aspectRatio);
 							}
 							ax = (screen->w - aw) / 2;
-							// box art keeps its top, that's where the logo is
-							ay = has_art ? 0 : (screen->h - ah) / 2;
+							ay = (screen->h - ah) / 2;
 
 							if(lastScreen == SCREEN_GAME) {
 								// need to flip once so streaming_texture1 is updated
 								GFX_flipHidden();
-								// custom: same cover rect as the other transitions, a full screen rect stretched box art
+								// custom: same fit rect as the other transitions, a full screen rect stretched box art
 								GFX_animateSurfaceOpacity(bmp,ax,ay,aw,ah,0,255,CFG_getMenuTransitions() ? 150:20,LAYER_ALL);
 							} else if(lastScreen == SCREEN_GAMELIST) {
 
@@ -3193,7 +3190,6 @@ int main (int argc, char *argv[]) {
 					SDL_Rect preview_rect = {ox,oy,screen->w,screen->h};
 					SDL_FillRect(screen, &preview_rect, 0);
 					GFX_blitMessage(font.large, "No Games", screen, &preview_rect);
-					GFX_blitButtonGroup((char*[]){ "B","BACK", NULL }, 1, screen, 1);
 				}
 
 				GFX_flipHidden();
