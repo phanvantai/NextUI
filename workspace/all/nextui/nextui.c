@@ -241,7 +241,7 @@ static void getUniqueName(Entry* entry, char* out_name) {
 
 static void Directory_index(Directory* self) {
     int is_collection = prefixMatch(COLLECTIONS_PATH, self->path);
-    int skip_index = exactMatch(FAUX_RECENT_PATH, self->path) || is_collection; // not alphabetized
+    int skip_index = exactMatch(FAUX_RECENT_PATH, self->path) || exactMatch(FAUX_SETTINGS_PATH, self->path) || is_collection; // not alphabetized
 
     Hash* map = NULL;
     char map_path[256];
@@ -356,6 +356,7 @@ static Array* getRecents(void);
 static Array* getCollection(char* path);
 static Array* getDiscs(char* path);
 static Array* getEntries(char* path);
+static Array* getSettings(void);
 
 static Directory* Directory_new(char* path, int selected) {
 	char display_name[256];
@@ -369,6 +370,9 @@ static Directory* Directory_new(char* path, int selected) {
 	}
 	else if (exactMatch(path, FAUX_RECENT_PATH)) {
 		self->entries = getRecents();
+	}
+	else if (exactMatch(path, FAUX_SETTINGS_PATH)) {
+		self->entries = getSettings();
 	}
 	else if (exactMatch(path, ROMS_PATH)) {
 		self->entries = getRoms();
@@ -851,35 +855,72 @@ static Array* getQuickToggles(void) {
 	return entries;
 }
 
-static Array* getRoot(void) {
-    Array* root = Array_new();
+// Quick menu DIPs use a bare name as their path ("Wifi"), settings page DIPs
+// live under FAUX_SETTINGS_PATH so the list code can treat them like files.
+static const char* dipKey(Entry* self) {
+	char* slash = strrchr(self->path, '/');
+	return slash ? slash+1 : self->path;
+}
 
-    if (hasRecents() && CFG_getShowRecents())
-		Array_push(root, Entry_new(FAUX_RECENT_PATH, ENTRY_DIR));
+// Settings page toggles show their state in the label, eg. "Wifi: On"
+static void labelSettingsToggle(Entry* self) {
+	if (self->type!=ENTRY_DIP || !prefixMatch(FAUX_SETTINGS_PATH "/", self->path)) return;
 
-	Array *entries = getRoms();
+	const char* key = dipKey(self);
+	int on;
+	if (!strcmp(key, "Wifi")) on = WIFI_enabled();
+	else if (!strcmp(key, "Bluetooth")) on = BT_enabled();
+	else return;
 
-	// Handle collections
-	if (hasCollections() && CFG_getShowCollections()) {
-        if (entries->count) {
-            Array_push(root, Entry_new(COLLECTIONS_PATH, ENTRY_DIR));
-        } else { // No visible systems, promote collections to root
-			Array *collections = getCollections();
-			Array_yoink(entries, collections);
-        }
-    }
+	char name[64];
+	snprintf(name, sizeof(name), "%s: %s", key, on ? "On" : "Off");
+	free(self->name);
+	self->name = strdup(name);
+}
 
-    // Move entries to root
-	Array_yoink(root, entries);
+// custom: the settings page replaces the quick menu. Settings app first, then
+// every Tools pak, then the system toggles.
+static Array* getSettings(void) {
+	Array* entries = Array_new();
 
-	// Add tools if applicable
-    if (hasTools() && CFG_getShowTools() && !simple_mode) {
+	Entry* settings = entryFromPakName("Settings");
+	if (settings)
+		Array_push(entries, settings);
+
+	if (hasTools() && !simple_mode) {
 		char tools_path[256];
 		snprintf(tools_path, sizeof(tools_path), "%s/Tools/%s", SDCARD_PATH, PLATFORM);
-        Array_push(root, Entry_new(tools_path, ENTRY_DIR));
-    }
+		Array* tools = getEntries(tools_path);
+		for (int i=0; i<tools->count; i++) {
+			Entry* tool = tools->items[i];
+			// the stock Updater pulls LoveRetro/NextUI and would overwrite this build
+			if (tool->type!=ENTRY_PAK || suffixMatch("/Updater.pak", tool->path) || (settings && exactMatch(tool->path, settings->path)))
+				Entry_free(tool);
+			else
+				Array_push(entries, tool);
+		}
+		Array_free(tools);
+	}
 
-    return root;
+	if (WIFI_supported())
+		Array_push(entries, Entry_new(FAUX_SETTINGS_PATH "/Wifi", ENTRY_DIP));
+	if (BT_supported())
+		Array_push(entries, Entry_new(FAUX_SETTINGS_PATH "/Bluetooth", ENTRY_DIP));
+	Array_push(entries, Entry_new(FAUX_SETTINGS_PATH "/Reboot", ENTRY_DIP));
+	Array_push(entries, Entry_new(FAUX_SETTINGS_PATH "/Poweroff", ENTRY_DIP));
+
+	for (int i=0; i<entries->count; i++)
+		labelSettingsToggle(entries->items[i]);
+
+	return entries;
+}
+
+static Array* getRoot(void) {
+	// custom: the game list shows only systems. Recents live in the game
+	// switcher, tools in the settings page. hasRecents() still has to run
+	// because it loads the recents array the switcher reads.
+	hasRecents();
+	return getRoms();
 }
 
 static Entry* entryFromRecent(Recent* recent)
@@ -1499,13 +1540,20 @@ static void openDirectory(char* path, int auto_launch) {
 }
 
 static void closeDirectory(void) {
-	restore_selected = top->selected;
-	restore_start = top->start;
-	restore_end = top->end;
+	// custom: the settings page isn't part of the folder tree, leaving it must
+	// not hand its selection to the next folder opened
+	int is_settings = exactMatch(top->path, FAUX_SETTINGS_PATH);
+	if (!is_settings) {
+		restore_selected = top->selected;
+		restore_start = top->start;
+		restore_end = top->end;
+	}
 	DirectoryArray_pop(stack);
-	restore_depth = stack->count;
 	top = stack->items[stack->count-1];
-	restore_relative = top->selected;
+	if (!is_settings) {
+		restore_depth = stack->count;
+		restore_relative = top->selected;
+	}
 }
 
 static void cleanupImageLoaderPool(void); // Forward declaration
@@ -1515,20 +1563,22 @@ static void toggleQuick(Entry* self)
 	if(!self)
 		return;
 
-	if(!strcmp(self->name, "Wifi")) {
+	// match on the path, settings page labels carry state ("Wifi: On")
+	const char* key = dipKey(self);
+	if(!strcmp(key, "Wifi")) {
 		WIFI_enable(!WIFI_enabled());
 	}
-	else if(!strcmp(self->name, "Bluetooth")) {
+	else if(!strcmp(key, "Bluetooth")) {
 		BT_enable(!BT_enabled());
 	}
-	else if(!strcmp(self->name, "Sleep")) {
+	else if(!strcmp(key, "Sleep")) {
 		PWR_sleep();
 	}
-	else if(!strcmp(self->name, "Reboot")) {
+	else if(!strcmp(key, "Reboot")) {
 		cleanupImageLoaderPool();  // Stop worker threads before SDL cleanup
 		PWR_powerOff(1);
 	}
-	else if(!strcmp(self->name, "Poweroff")) {
+	else if(!strcmp(key, "Poweroff")) {
 		cleanupImageLoaderPool();  // Stop worker threads before SDL cleanup
 		PWR_powerOff(0);
 	}
@@ -1561,7 +1611,17 @@ static void Entry_open(Entry* self) {
 	}
 	else if (self->type==ENTRY_DIP) {
 		toggleQuick(self);
+		labelSettingsToggle(self);
 	}
+}
+
+// custom: MENU pushes the settings page on top of wherever the user is, so B
+// (or MENU again) drops them back on the same spot in the game list
+static void openSettings(void) {
+	top = Directory_new(FAUX_SETTINGS_PATH, 0);
+	top->start = 0;
+	top->end = (top->entries->count<MAIN_ROW_COUNT) ? top->entries->count : MAIN_ROW_COUNT;
+	Array_push(stack, top);
 }
 
 ///////////////////////////////////////
@@ -1581,6 +1641,24 @@ static void loadLast(void) { // call after loading root directory
 
 	char last_path[256];
 	getFile(LAST_PATH, last_path, 256);
+
+	// custom: paks and toggles launched from the settings page aren't in the
+	// game list, so reopen the settings page with that entry selected
+	if (!prefixMatch(ROMS_PATH, last_path)) {
+		Directory* settings = Directory_new(FAUX_SETTINGS_PATH, 0);
+		for (int i=0; i<settings->entries->count; i++) {
+			Entry* entry = settings->entries->items[i];
+			if (!exactMatch(entry->path, last_path)) continue;
+
+			settings->selected = i;
+			settings->start = i<MAIN_ROW_COUNT ? 0 : i - MAIN_ROW_COUNT + 1;
+			settings->end = MIN(settings->start + MAIN_ROW_COUNT, settings->entries->count);
+			top = settings;
+			Array_push(stack, top);
+			return;
+		}
+		Directory_free(settings);
+	}
 
 	char full_path[256];
 	strcpy(full_path, last_path);
@@ -2495,14 +2573,18 @@ int main (int argc, char *argv[]) {
 		}
 		else {
 			if (PAD_tappedMenu(now)) {
-				currentScreen = SCREEN_QUICKMENU;
-				qm_col = 0;
-				qm_row = 0;
-				qm_shift = 0;
-				qm_slot = 0;
+				// custom: MENU toggles the settings page instead of the quick menu
+				if (exactMatch(top->path, FAUX_SETTINGS_PATH)) {
+					closeDirectory();
+					animationdirection = SLIDE_RIGHT;
+				}
+				else {
+					openSettings();
+					animationdirection = SLIDE_LEFT;
+				}
+				total = top->entries->count;
 				dirty = 1;
-				folderbgchanged = 1; // The background painting code is a clusterfuck, just force a repaint here
-				if (!HAS_POWER_BUTTON && !simple_mode) PWR_enableSleep();
+				if (total>0) readyResume(top->entries->items[top->selected]);
 			}
 			else if (PAD_tappedSelect(now)) {
 				currentScreen = SCREEN_GAMESWITCHER;

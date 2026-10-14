@@ -29,6 +29,7 @@
 #define GAME_SWITCHER_PERSIST_PATH SHARED_USERDATA_PATH "/.minui/game_switcher.txt"
 
 #define FAUX_RECENT_PATH SDCARD_PATH "/Recently Played"
+#define FAUX_SETTINGS_PATH SDCARD_PATH "/Settings" // custom: settings page opened with MENU
 #define COLLECTIONS_PATH SDCARD_PATH "/Collections"
 
 #define LAST_PATH "/tmp/last.txt" // transient
