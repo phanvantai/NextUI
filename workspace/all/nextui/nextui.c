@@ -862,18 +862,43 @@ static const char* dipKey(Entry* self) {
 	return slash ? slash+1 : self->path;
 }
 
+// custom: wifi_init.sh and bt_init.sh take seconds (turning wifi on ~6s), so
+// the Wifi/Bluetooth toggles run them on a worker thread and the UI keeps going
+static SDL_atomic_t toggle_busy; // a toggle is running, further presses wait for it
+static SDL_atomic_t toggle_done; // it finished, the labels need a refresh
+static int toggle_wifi; // what's running, for the "Turning on..." label
+static int toggle_on;
+
+static int toggleWorker(void* unused) {
+	if (toggle_wifi) WIFI_enable(toggle_on);
+	else BT_enable(toggle_on);
+	SDL_AtomicSet(&toggle_done, 1);
+	SDL_AtomicSet(&toggle_busy, 0);
+	return 0;
+}
+
+static void startToggle(int wifi, int on) {
+	if (!SDL_AtomicCAS(&toggle_busy, 0, 1)) return;
+	toggle_wifi = wifi;
+	toggle_on = on;
+	SDL_Thread* thread = SDL_CreateThread(toggleWorker, "toggle", NULL);
+	if (thread) SDL_DetachThread(thread);
+	else toggleWorker(NULL); // no thread, block like stock
+}
+
 // Settings page toggles show their state in the label, eg. "Wifi: On"
 static void labelSettingsToggle(Entry* self) {
 	if (self->type!=ENTRY_DIP || !prefixMatch(FAUX_SETTINGS_PATH "/", self->path)) return;
 
 	const char* key = dipKey(self);
-	int on;
-	if (!strcmp(key, "Wifi")) on = WIFI_enabled();
-	else if (!strcmp(key, "Bluetooth")) on = BT_enabled();
-	else return;
+	int is_wifi = !strcmp(key, "Wifi");
+	if (!is_wifi && strcmp(key, "Bluetooth")) return;
 
 	char name[64];
-	snprintf(name, sizeof(name), "%s: %s", key, on ? "On" : "Off");
+	if (SDL_AtomicGet(&toggle_busy) && toggle_wifi==is_wifi)
+		snprintf(name, sizeof(name), "%s: Turning %s...", key, toggle_on ? "on" : "off");
+	else
+		snprintf(name, sizeof(name), "%s: %s", key, (is_wifi ? WIFI_enabled() : BT_enabled()) ? "On" : "Off");
 	free(self->name);
 	self->name = strdup(name);
 }
@@ -1700,10 +1725,10 @@ static void toggleQuick(Entry* self)
 	// match on the path, settings page labels carry state ("Wifi: On")
 	const char* key = dipKey(self);
 	if(!strcmp(key, "Wifi")) {
-		WIFI_enable(!WIFI_enabled());
+		startToggle(1, !WIFI_enabled());
 	}
 	else if(!strcmp(key, "Bluetooth")) {
-		BT_enable(!BT_enabled());
+		startToggle(0, !BT_enabled());
 	}
 	else if(!strcmp(key, "Sleep")) {
 		PWR_sleep();
@@ -2562,6 +2587,13 @@ int main (int argc, char *argv[]) {
 		int total = top->entries->count;
 
 		PWR_update(&dirty, &show_setting, NULL, NULL);
+
+		// custom: a Wifi/Bluetooth toggle finished on its worker thread
+		if (SDL_AtomicCAS(&toggle_done, 1, 0)) {
+			for (int i=0; i<top->entries->count; i++)
+				labelSettingsToggle(top->entries->items[i]);
+			dirty = 1;
+		}
 
 		// user-assignable buttons, handled before the per-screen input so they work
 		// from the game list, the game switcher and the quick menu alike.
