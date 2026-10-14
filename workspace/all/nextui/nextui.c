@@ -893,8 +893,7 @@ static Array* getSettings(void) {
 		Array* tools = getEntries(tools_path);
 		for (int i=0; i<tools->count; i++) {
 			Entry* tool = tools->items[i];
-			// the stock Updater pulls LoveRetro/NextUI and would overwrite this build
-			if (tool->type!=ENTRY_PAK || suffixMatch("/Updater.pak", tool->path) || (settings && exactMatch(tool->path, settings->path)))
+			if (tool->type!=ENTRY_PAK || (settings && exactMatch(tool->path, settings->path)))
 				Entry_free(tool);
 			else
 				Array_push(entries, tool);
