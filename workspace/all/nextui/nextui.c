@@ -3069,36 +3069,64 @@ int main (int argc, char *argv[]) {
 					readyResume(selectedEntry);
 					char art_path[MAX_PATH];
 					int has_art = getBoxArtPath(selectedEntry, art_path);
-					// title pill
+					// title pill, custom: long names wrap onto a second line instead of "..."
 					{
-						int max_width = screen->w - SCALE1(PADDING * 2) - ow;
+						int max_width = screen->w - SCALE1(PADDING * 3) - ow; // PADDING gap before the hardware group
+						int text_max = max_width - SCALE1(BUTTON_PADDING*2);
+						char* name = selectedEntry->name;
+						char line1[256];
+						char line2[256] = "";
+						int width;
 
-						char display_name[256];
-						int text_width = GFX_truncateText(font.large, selectedEntry->name, display_name, max_width, SCALE1(BUTTON_PADDING*2));
-						max_width = MIN(max_width, text_width);
-
-						SDL_Surface* text;
-						SDL_Color textColor = uintToColour(THEME_COLOR6_255);
 						SDL_LockMutex(fontMutex);
-						text = TTF_RenderUTF8_Blended(font.large, display_name, textColor);
+						TTF_SizeUTF8(font.large, name, &width, NULL);
+						if (width <= text_max) {
+							snprintf(line1, sizeof(line1), "%s", name);
+						}
+						else {
+							// break at the last space that still fits on the first line
+							int split = 0;
+							for (int i = 1; name[i]; i++) {
+								if (name[i] != ' ') continue;
+								snprintf(line1, sizeof(line1), "%.*s", i, name);
+								TTF_SizeUTF8(font.large, line1, &width, NULL);
+								if (width > text_max) break;
+								split = i;
+							}
+							if (split) {
+								snprintf(line1, sizeof(line1), "%.*s", split, name);
+								GFX_truncateText(font.large, name + split + 1, line2, text_max, 0);
+							}
+							else {
+								GFX_truncateText(font.large, name, line1, text_max, 0); // one long word
+							}
+						}
+
+						SDL_Color textColor = uintToColour(THEME_COLOR6_255);
+						SDL_Surface* text1 = TTF_RenderUTF8_Blended(font.large, line1, textColor);
+						SDL_Surface* text2 = line2[0] ? TTF_RenderUTF8_Blended(font.large, line2, textColor) : NULL;
 						SDL_UnlockMutex(fontMutex);
-						const int text_offset_y = (SCALE1(PILL_SIZE) - text->h + 1) >> 1;
-						GFX_blitPillLight(ASSET_WHITE_PILL, screen, &(SDL_Rect){
-							SCALE1(PADDING),
-							SCALE1(PADDING),
-							max_width,
-							SCALE1(PILL_SIZE)
-						});
-						SDL_BlitSurface(text, &(SDL_Rect){
-							0,
-							0,
-							max_width-SCALE1(BUTTON_PADDING*2),
-							text->h
-						}, screen, &(SDL_Rect){
-							SCALE1(PADDING+BUTTON_PADDING),
-							SCALE1(PADDING) + text_offset_y,
-						});
-						SDL_FreeSurface(text);
+
+						int text_w = MAX(text1->w, text2 ? text2->w : 0);
+						int box_w = MIN(max_width, text_w + SCALE1(BUTTON_PADDING*2));
+						const int text_offset_y = (SCALE1(PILL_SIZE) - text1->h + 1) >> 1;
+						SDL_Rect box = {SCALE1(PADDING), SCALE1(PADDING), box_w, SCALE1(PILL_SIZE)};
+						if (text2) {
+							// rounded box one text line taller, same corners as the pill
+							box.h += text1->h;
+							GFX_blitRectColor(ASSET_WHITE_PILL, screen, &box, THEME_COLOR2);
+						}
+						else {
+							GFX_blitPillLight(ASSET_WHITE_PILL, screen, &box);
+						}
+						SDL_BlitSurface(text1, &(SDL_Rect){0, 0, box_w - SCALE1(BUTTON_PADDING*2), text1->h}, screen,
+							&(SDL_Rect){SCALE1(PADDING+BUTTON_PADDING), SCALE1(PADDING) + text_offset_y});
+						if (text2) {
+							SDL_BlitSurface(text2, &(SDL_Rect){0, 0, box_w - SCALE1(BUTTON_PADDING*2), text2->h}, screen,
+								&(SDL_Rect){SCALE1(PADDING+BUTTON_PADDING), SCALE1(PADDING) + text_offset_y + text1->h});
+							SDL_FreeSurface(text2);
+						}
+						SDL_FreeSurface(text1);
 					}
 
 					char* open_label = can_resume ? "RESUME" : "OPEN";
