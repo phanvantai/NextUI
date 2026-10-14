@@ -865,8 +865,8 @@ static const char* dipKey(Entry* self) {
 // custom: wifi_init.sh and bt_init.sh take seconds (turning wifi on ~6s), so
 // the Wifi/Bluetooth toggles run them on a worker thread and the UI keeps going
 static SDL_atomic_t toggle_busy; // a toggle is running, further presses wait for it
-static SDL_atomic_t toggle_done; // it finished, the labels need a refresh
-static int toggle_wifi; // what's running, for the "Turning on..." label
+static SDL_atomic_t toggle_done; // it finished, the screen needs a redraw
+static int toggle_wifi; // what's running, for the "Turning on..." hint
 static int toggle_on;
 
 static int toggleWorker(void* unused) {
@@ -886,25 +886,60 @@ static void startToggle(int wifi, int on) {
 	else toggleWorker(NULL); // no thread, block like stock
 }
 
-// Settings page toggles show their state in the label, eg. "Wifi: On"
-static void labelSettingsToggle(Entry* self) {
-	if (self->type!=ENTRY_DIP || !prefixMatch(FAUX_SETTINGS_PATH "/", self->path)) return;
+// custom: the settings page's system actions are a row of icon buttons along
+// the bottom rather than list rows. settings_button is the focused one, -1
+// while the list has focus.
+static Array* settingsActions = NULL; // Entry*, ENTRY_DIP
+static int settings_button = -1;
 
-	const char* key = dipKey(self);
+static Array* getSettingsActions(void) {
+	Array* actions = Array_new();
+	if (WIFI_supported())
+		Array_push(actions, Entry_new(FAUX_SETTINGS_PATH "/Wifi", ENTRY_DIP));
+	if (BT_supported())
+		Array_push(actions, Entry_new(FAUX_SETTINGS_PATH "/Bluetooth", ENTRY_DIP));
+	Array_push(actions, Entry_new(FAUX_SETTINGS_PATH "/Reboot", ENTRY_DIP));
+	Array_push(actions, Entry_new(FAUX_SETTINGS_PATH "/Poweroff", ENTRY_DIP));
+	return actions;
+}
+
+static int settingsActionAsset(Entry* action) {
+	const char* key = dipKey(action);
+	if (!strcmp(key, "Wifi")) return WIFI_enabled() ? ASSET_WIFI : ASSET_WIFI_OFF;
+	if (!strcmp(key, "Bluetooth")) return BT_enabled() ? ASSET_BLUETOOTH : ASSET_BLUETOOTH_OFF;
+	if (!strcmp(key, "Reboot")) return ASSET_RESTART;
+	return ASSET_POWEROFF;
+}
+
+// what A does on the focused button, shown in the hint group
+static char* settingsActionHint(Entry* action) {
+	const char* key = dipKey(action);
 	int is_wifi = !strcmp(key, "Wifi");
-	if (!is_wifi && strcmp(key, "Bluetooth")) return;
+	if (is_wifi || !strcmp(key, "Bluetooth")) {
+		if (SDL_AtomicGet(&toggle_busy) && toggle_wifi==is_wifi)
+			return toggle_on ? "Turning on..." : "Turning off...";
+		return (is_wifi ? WIFI_enabled() : BT_enabled()) ? "Turn off" : "Turn on";
+	}
+	return !strcmp(key, "Reboot") ? "Reboot" : "Power off";
+}
 
-	char name[64];
-	if (SDL_AtomicGet(&toggle_busy) && toggle_wifi==is_wifi)
-		snprintf(name, sizeof(name), "%s: Turning %s...", key, toggle_on ? "on" : "off");
-	else
-		snprintf(name, sizeof(name), "%s: %s", key, (is_wifi ? WIFI_enabled() : BT_enabled()) ? "On" : "Off");
-	free(self->name);
-	self->name = strdup(name);
+static void drawSettingsActions(SDL_Surface* dst) {
+	int size = SCALE1(PILL_SIZE);
+	int x = SCALE1(PADDING);
+	int y = dst->h - SCALE1(PADDING) - size;
+	for (int i=0; i<settingsActions->count; i++) {
+		int focused = i==settings_button;
+		GFX_blitPillColor(ASSET_WHITE_PILL, dst, &(SDL_Rect){x, y, size, size}, focused ? THEME_COLOR1 : THEME_COLOR3, RGB_WHITE);
+		int asset = settingsActionAsset(settingsActions->items[i]);
+		SDL_Rect rect;
+		GFX_assetRect(asset, &rect);
+		GFX_blitAssetColor(asset, NULL, dst, &(SDL_Rect){x + (size - rect.w) / 2, y + (size - rect.h) / 2}, focused ? THEME_COLOR5 : THEME_COLOR4);
+		x += size + SCALE1(BUTTON_MARGIN * 2);
+	}
 }
 
 // custom: the settings page replaces the quick menu. Settings app first, then
-// every Tools pak, then the system toggles.
+// every Tools pak; the system actions are the button row (getSettingsActions).
 static Array* getSettings(void) {
 	Array* entries = Array_new();
 
@@ -925,16 +960,6 @@ static Array* getSettings(void) {
 		}
 		Array_free(tools);
 	}
-
-	if (WIFI_supported())
-		Array_push(entries, Entry_new(FAUX_SETTINGS_PATH "/Wifi", ENTRY_DIP));
-	if (BT_supported())
-		Array_push(entries, Entry_new(FAUX_SETTINGS_PATH "/Bluetooth", ENTRY_DIP));
-	Array_push(entries, Entry_new(FAUX_SETTINGS_PATH "/Reboot", ENTRY_DIP));
-	Array_push(entries, Entry_new(FAUX_SETTINGS_PATH "/Poweroff", ENTRY_DIP));
-
-	for (int i=0; i<entries->count; i++)
-		labelSettingsToggle(entries->items[i]);
 
 	return entries;
 }
@@ -1770,13 +1795,13 @@ static void Entry_open(Entry* self) {
 	}
 	else if (self->type==ENTRY_DIP) {
 		toggleQuick(self);
-		labelSettingsToggle(self);
 	}
 }
 
 // custom: MENU pushes the settings page on top of wherever the user is, so B
 // (or MENU again) drops them back on the same spot in the game list
 static void openSettings(void) {
+	settings_button = -1;
 	top = Directory_new(FAUX_SETTINGS_PATH, 0);
 	top->start = 0;
 	top->end = (top->entries->count<MAIN_ROW_COUNT) ? top->entries->count : MAIN_ROW_COUNT;
@@ -1787,6 +1812,7 @@ static void openSettings(void) {
 // where the user should go back to. A file in /tmp rather than a variable so it
 // survives NextUI restarting around a pak launched from the page.
 static int closeSettings(void) {
+	settings_button = -1;
 	closeDirectory();
 	if (!exists(SETTINGS_FROM_SWITCHER_PATH)) return 0;
 	unlink(SETTINGS_FROM_SWITCHER_PATH);
@@ -1909,6 +1935,7 @@ static void Menu_init(void) {
 	loadLast(); // restore state when available
 
 	QuickMenu_init(); // needs Menu_init
+	settingsActions = getSettingsActions();
 	Switcher_refresh(); // needs recents, loaded by openDirectory(SDCARD_PATH)
 }
 static void Menu_quit(void) {
@@ -1916,6 +1943,8 @@ static void Menu_quit(void) {
 	DirectoryArray_free(stack);
 
 	QuickMenu_quit();
+	EntryArray_free(settingsActions);
+	settingsActions = NULL;
 	EntryArray_free(switcher);
 	switcher = NULL;
 }
@@ -2589,11 +2618,8 @@ int main (int argc, char *argv[]) {
 		PWR_update(&dirty, &show_setting, NULL, NULL);
 
 		// custom: a Wifi/Bluetooth toggle finished on its worker thread
-		if (SDL_AtomicCAS(&toggle_done, 1, 0)) {
-			for (int i=0; i<top->entries->count; i++)
-				labelSettingsToggle(top->entries->items[i]);
+		if (SDL_AtomicCAS(&toggle_done, 1, 0))
 			dirty = 1;
-		}
 
 		// user-assignable buttons, handled before the per-screen input so they work
 		// from the game list, the game switcher and the quick menu alike.
@@ -2792,6 +2818,23 @@ int main (int argc, char *argv[]) {
 				switcher_selected = 0;
 				dirty = 1;
 			}
+			else if (exactMatch(top->path, FAUX_SETTINGS_PATH) && !PAD_justPressed(BTN_B) &&
+					(settings_button>=0 || ((total==0 || top->selected==total-1) && PAD_justPressed(BTN_DOWN)))) {
+				// custom: the action buttons along the bottom of the settings page. Down
+				// from the last row gets here, up goes back; B falls through and closes.
+				int count = settingsActions->count;
+				int before = settings_button;
+				int pressed = 0;
+				if (settings_button<0) settings_button = 0;
+				else if (PAD_justPressed(BTN_UP)) settings_button = -1;
+				else if (PAD_justRepeated(BTN_LEFT)) settings_button = (settings_button + count - 1) % count;
+				else if (PAD_justRepeated(BTN_RIGHT)) settings_button = (settings_button + 1) % count;
+				else if (PAD_justPressed(BTN_A)) {
+					toggleQuick(settingsActions->items[settings_button]);
+					pressed = 1;
+				}
+				if (settings_button!=before || pressed) dirty = 1;
+			}
 			else if (total>0) {
 				if (PAD_justRepeated(BTN_UP)) {
 					if (selected==0 && !PAD_justPressed(BTN_UP)) {
@@ -2900,7 +2943,7 @@ int main (int argc, char *argv[]) {
 
 				dirty = 1;
 			}
-			else if (total>0 && PAD_justPressed(BTN_A)) {
+			else if (total>0 && PAD_justPressed(BTN_A) && settings_button<0) { // custom: A on a settings button was handled above
 				Entry_open(entry);
 				if(entry->type == ENTRY_DIR) {
 					animationdirection = SLIDE_LEFT;
@@ -3378,12 +3421,21 @@ int main (int argc, char *argv[]) {
 					}
 				}
 				else {
-					if (stack->count>1) {
+					if (settings_button>=0) {
+						GFX_blitButtonGroup((char*[]){ "B","BACK", "A",settingsActionHint(settingsActions->items[settings_button]), NULL }, 1, screen, 1);
+					}
+					else if (stack->count>1) {
 						GFX_blitButtonGroup((char*[]){ "B","BACK", "A","OPEN", NULL }, 1, screen, 1);
 					}
 					else {
 						GFX_blitButtonGroup((char*[]){ "A","OPEN", NULL }, 0, screen, 1);
 					}
+				}
+
+				// custom: settings page action buttons
+				if (exactMatch(top->path, FAUX_SETTINGS_PATH)) {
+					drawSettingsActions(screen);
+					if (settings_button>=0) is_scrolling = 0; // no selected row to scroll
 				}
 
 				// list
@@ -3397,7 +3449,7 @@ int main (int argc, char *argv[]) {
 						char* entry_name = entry->name;
 						char* entry_unique = entry->unique;
 						int available_width = MAX(0,(had_thumb ? ox + SCALE1(BUTTON_MARGIN) : screen->w - SCALE1(BUTTON_MARGIN)) - SCALE1(PADDING * 2));
-						bool row_is_selected = (j == selected_row);
+						bool row_is_selected = (j == selected_row) && settings_button<0; // custom: a settings button has focus
 						bool row_is_top = (i == top->start);
 						bool row_has_moved = (previous_row != selected_row || previous_depth != stack->count);
 						if (row_is_top && !(had_thumb))
@@ -3582,7 +3634,7 @@ int main (int argc, char *argv[]) {
 				GFX_clearLayers(LAYER_SCROLLTEXT);
 
 				SDL_LockMutex(animMutex);
-				if (list_show_entry_names) {
+				if (list_show_entry_names && settings_button<0) { // custom: no row pill while a settings button has focus
 					GFX_drawOnLayer(globalpill, pillRect.x, pillRect.y, globallpillW, globalpill->h, 1.0f, 0, LAYER_TRANSITION);
 					GFX_drawOnLayer(globalText, SCALE1(BUTTON_MARGIN + BUTTON_PADDING), pilltargetTextY, globalText->w, globalText->h, 1.0f, 0, LAYER_SCROLLTEXT);
 				}
@@ -3638,7 +3690,7 @@ int main (int argc, char *argv[]) {
 			SDL_LockMutex(animMutex);
 			if (getAnimationDraw()) {
 				GFX_clearLayers(LAYER_TRANSITION);
-				if (list_show_entry_names)
+				if (list_show_entry_names && settings_button<0)
 					GFX_drawOnLayer(globalpill, pillRect.x, pillRect.y, globallpillW, globalpill->h, 1.0f, 0, LAYER_TRANSITION);
 				setAnimationDraw(0);
 			}
@@ -3681,7 +3733,7 @@ int main (int argc, char *argv[]) {
 					GFX_clearLayers(LAYER_TRANSITION);
 					GFX_clearLayers(LAYER_SCROLLTEXT);
 					SDL_LockMutex(animMutex);
-					if (list_show_entry_names) {
+					if (list_show_entry_names && settings_button<0) {
 						GFX_drawOnLayer(globalpill, pillRect.x, pillRect.y, globallpillW, globalpill->h, 1.0f, 0, LAYER_TRANSITION);
 						GFX_drawOnLayer(globalText, SCALE1(BUTTON_MARGIN + BUTTON_PADDING),pilltargetTextY, globalText->w, globalText->h, 1.0f, 0, LAYER_SCROLLTEXT);
 					}
