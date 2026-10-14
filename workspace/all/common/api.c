@@ -1,6 +1,7 @@
 #include "defines.h"
 #include "api.h"
 
+#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <math.h>
@@ -2093,6 +2094,15 @@ static int HintToButton(char* hint) {
 	return -1; // Not found
 }
 
+// custom: hints read "Back", not "BACK". Button names (A, MENU, SELECT) stay as
+// printed on the device.
+static void hintCase(const char *hint, char *out, size_t size)
+{
+	snprintf(out, size, "%s", hint);
+	for (int i = 1; out[i]; i++)
+		out[i] = tolower((unsigned char)out[i]);
+}
+
 int GFX_getButtonWidth(char *hint, char *button)
 {
 	int button_width = 0;
@@ -2113,7 +2123,9 @@ int GFX_getButtonWidth(char *hint, char *button)
 	}
 	button_width += SCALE1(BUTTON_MARGIN);
 
-	TTF_SizeUTF8(font.small, hint, &width, NULL);
+	char hint_text[64];
+	hintCase(hint, hint_text, sizeof(hint_text));
+	TTF_SizeUTF8(font.small, hint_text, &width, NULL);
 	button_width += width + SCALE1(BUTTON_MARGIN);
 	return button_width;
 }
@@ -2171,7 +2183,9 @@ void GFX_blitButton(char *hint, char *button, SDL_Surface *dst, SDL_Rect *dst_re
 
 	// hint text
 	SDL_Color text_color = uintToColour(THEME_COLOR6_255);
-	text = TTF_RenderUTF8_Blended(font.small, hint, text_color);
+	char hint_text[64];
+	hintCase(hint, hint_text, sizeof(hint_text));
+	text = TTF_RenderUTF8_Blended(font.small, hint_text, text_color);
 	SDL_BlitSurface(text, NULL, dst, &(SDL_Rect){ox + dst_rect->x, dst_rect->y + (SCALE1(BUTTON_SIZE) - text->h) / 2, text->w, text->h});
 	SDL_FreeSurface(text);
 }
@@ -2363,7 +2377,7 @@ SDL_Surface* GFX_createScreenFormatSurface(int width, int height)
 	);
 }
 
-int GFX_blitHardwareGroup(SDL_Surface *dst, int show_setting)
+static int blitHardwareGroupFullSize(SDL_Surface *dst, int show_setting)
 {
 	int ox;
 	int oy;
@@ -2513,7 +2527,7 @@ void GFX_blitHardwareHints(SDL_Surface *dst, int show_setting)
 		GFX_blitButtonGroup((char *[]){"MNU", "BRGHT", "SEL", "CLTMP", NULL}, 0, dst, 0);
 }
 
-int GFX_blitButtonGroup(char **pairs, int primary, SDL_Surface *dst, int align_right)
+static int blitButtonGroupFullSize(char **pairs, int primary, SDL_Surface *dst, int align_right)
 {
 	int ox;
 	int oy;
@@ -2563,6 +2577,112 @@ int GFX_blitButtonGroup(char **pairs, int primary, SDL_Surface *dst, int align_r
 		ox += hints[i].ow + SCALE1(BUTTON_MARGIN);
 	}
 	return ow;
+}
+
+// custom: button hints are drawn at 2/3 of the stock size. The pills, button
+// sprites and fonts all hang off PILL_SIZE/BUTTON_SIZE, which also size the
+// list rows, so instead of shrinking those the group is drawn full size into a
+// scratch surface and scaled down.
+#define HINT_SCALE_NUM 2
+#define HINT_SCALE_DEN 3
+
+// bilinear scale of premultiplied ARGB8888, then back to straight alpha for SDL's blend
+static void scaleHintSurface(SDL_Surface *src, SDL_Rect *src_rect, SDL_Surface *out)
+{
+	uint32_t *sp = src->pixels;
+	uint32_t *op = out->pixels;
+	int spitch = src->pitch / 4;
+	int opitch = out->pitch / 4;
+	for (int y = 0; y < out->h; y++)
+	{
+		int fy = ((y * 2 + 1) * src_rect->h * 256) / (out->h * 2) - 128; // 8 bit fixed point, pixel centers
+		if (fy < 0) fy = 0;
+		int y0 = fy >> 8, wy = fy & 255;
+		int y1 = MIN(y0 + 1, src_rect->h - 1);
+		for (int x = 0; x < out->w; x++)
+		{
+			int fx = ((x * 2 + 1) * src_rect->w * 256) / (out->w * 2) - 128;
+			if (fx < 0) fx = 0;
+			int x0 = fx >> 8, wx = fx & 255;
+			int x1 = MIN(x0 + 1, src_rect->w - 1);
+			uint32_t p[4] = {
+				sp[(src_rect->y + y0) * spitch + src_rect->x + x0],
+				sp[(src_rect->y + y0) * spitch + src_rect->x + x1],
+				sp[(src_rect->y + y1) * spitch + src_rect->x + x0],
+				sp[(src_rect->y + y1) * spitch + src_rect->x + x1],
+			};
+			int w[4] = {(256 - wx) * (256 - wy), wx * (256 - wy), (256 - wx) * wy, wx * wy};
+			uint32_t c[4] = {0, 0, 0, 0}; // a, r, g, b
+			for (int i = 0; i < 4; i++)
+				for (int k = 0; k < 4; k++)
+					c[k] += ((p[i] >> (24 - k * 8)) & 255) * w[i];
+			for (int k = 0; k < 4; k++)
+				c[k] >>= 16;
+			if (c[0] > 0 && c[0] < 255)
+				for (int k = 1; k < 4; k++)
+					c[k] = MIN(255, c[k] * 255 / c[0]);
+			op[y * opitch + x] = (c[0] << 24) | (c[1] << 16) | (c[2] << 8) | c[3];
+		}
+	}
+}
+
+// Shrinks the pill at src_rect of a scratch band and blits it to dst. x/y place
+// it: align_right measures x from the right edge, align_bottom y from the bottom.
+static int blitHintBand(SDL_Surface *band, SDL_Rect *src_rect, SDL_Surface *dst, int align_right, int align_bottom)
+{
+	int sw = src_rect->w * HINT_SCALE_NUM / HINT_SCALE_DEN;
+	int sh = src_rect->h * HINT_SCALE_NUM / HINT_SCALE_DEN;
+	SDL_Surface *small = SDL_CreateRGBSurfaceWithFormat(0, sw, sh, 32, SDL_PIXELFORMAT_ARGB8888);
+	if (!small)
+		return src_rect->w;
+
+	SDL_LockSurface(band);
+	SDL_LockSurface(small);
+	scaleHintSurface(band, src_rect, small);
+	SDL_UnlockSurface(small);
+	SDL_UnlockSurface(band);
+	SDL_SetSurfaceBlendMode(small, SDL_BLENDMODE_BLEND);
+
+	int x = align_right ? dst->w - SCALE1(PADDING) - sw : SCALE1(PADDING);
+	int y = align_bottom ? dst->h - SCALE1(PADDING) - sh : SCALE1(PADDING);
+	SDL_BlitSurface(small, NULL, dst, &(SDL_Rect){x, y});
+	SDL_FreeSurface(small);
+	return sw;
+}
+
+// draws onto transparent black, blending leaves premultiplied colors behind
+static SDL_Surface *newHintBand(SDL_Surface *dst)
+{
+	SDL_Surface *band = SDL_CreateRGBSurfaceWithFormat(0, dst->w, SCALE1(PADDING + PILL_SIZE), 32, SDL_PIXELFORMAT_ARGB8888);
+	if (band)
+		SDL_FillRect(band, NULL, 0);
+	return band;
+}
+
+int GFX_blitButtonGroup(char **pairs, int primary, SDL_Surface *dst, int align_right)
+{
+	SDL_Surface *band = newHintBand(dst);
+	if (!band)
+		return blitButtonGroupFullSize(pairs, primary, dst, align_right);
+	// the band is PADDING+PILL_SIZE tall, so the stock code puts the pill at its top
+	int ow = blitButtonGroupFullSize(pairs, primary, band, align_right);
+	SDL_Rect src_rect = {align_right ? dst->w - SCALE1(PADDING) - ow : SCALE1(PADDING), 0, ow, SCALE1(PILL_SIZE)};
+	int sw = blitHintBand(band, &src_rect, dst, align_right, 1);
+	SDL_FreeSurface(band);
+	return sw;
+}
+
+// custom: the wifi/battery group in the top right shrinks like the button hints
+int GFX_blitHardwareGroup(SDL_Surface *dst, int show_setting)
+{
+	SDL_Surface *band = newHintBand(dst);
+	if (!band)
+		return blitHardwareGroupFullSize(dst, show_setting);
+	int ow = blitHardwareGroupFullSize(band, show_setting); // pill at (w - PADDING - ow, PADDING)
+	SDL_Rect src_rect = {dst->w - SCALE1(PADDING) - ow, SCALE1(PADDING), ow, SCALE1(PILL_SIZE)};
+	int sw = blitHintBand(band, &src_rect, dst, 1, 0);
+	SDL_FreeSurface(band);
+	return sw;
 }
 
 void GFX_blitTopCurtain(SDL_Surface* dst)
