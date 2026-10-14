@@ -3124,20 +3124,23 @@ int main (int argc, char *argv[]) {
 							float aspectRatio = (float)bmp->w / (float)bmp->h;
 							float screenRatio = (float)screen->w / (float)screen->h;
 
+							// custom: cover the whole screen and crop the overflow
 							if (screenRatio > aspectRatio) {
-								aw = (int)(screen->h * aspectRatio);
-								ah = screen->h;
-							} else {
 								aw = screen->w;
 								ah = (int)(screen->w / aspectRatio);
+							} else {
+								aw = (int)(screen->h * aspectRatio);
+								ah = screen->h;
 							}
 							ax = (screen->w - aw) / 2;
-							ay = (screen->h - ah) / 2;
+							// box art keeps its top, that's where the logo is
+							ay = has_art ? 0 : (screen->h - ah) / 2;
 
 							if(lastScreen == SCREEN_GAME) {
 								// need to flip once so streaming_texture1 is updated
 								GFX_flipHidden();
-								GFX_animateSurfaceOpacity(bmp,0,0,screen->w,screen->h,0,255,CFG_getMenuTransitions() ? 150:20,LAYER_ALL);
+								// custom: same cover rect as the other transitions, a full screen rect stretched box art
+								GFX_animateSurfaceOpacity(bmp,ax,ay,aw,ah,0,255,CFG_getMenuTransitions() ? 150:20,LAYER_ALL);
 							} else if(lastScreen == SCREEN_GAMELIST) {
 
 								GFX_drawOnLayer(blackBG,0,0,screen->w,screen->h,1.0f,0,LAYER_BACKGROUND);

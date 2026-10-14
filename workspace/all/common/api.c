@@ -188,6 +188,7 @@ static struct PWR_Context
 	pthread_t battery_pt;
 	SDL_atomic_t is_charging;
 	SDL_atomic_t is_usb_connected;
+	SDL_atomic_t is_power_connected; // custom: plugged in, even when the battery is full and not charging
 	SDL_atomic_t charge;
 
 	SDL_atomic_t is_online;
@@ -335,6 +336,12 @@ FALLBACK_IMPLEMENTATION void *PLAT_cpu_monitor(void *arg) {
 
     Perf_endCPUMonitor();
     return NULL;
+}
+
+// platforms that can't tell "plugged in" from "charging" keep the stock behaviour
+FALLBACK_IMPLEMENTATION int PLAT_isPowerConnected(void)
+{
+	return 0;
 }
 
 FALLBACK_IMPLEMENTATION void PLAT_getCPUTemp()
@@ -4060,6 +4067,7 @@ static void PWR_updateBatteryStatus(void)
 	SDL_AtomicSet(&pwr.is_charging, is_charging);
 	SDL_AtomicSet(&pwr.charge, charge);
 	SDL_AtomicSet(&pwr.is_usb_connected, PLAT_isUSBConnected());
+	SDL_AtomicSet(&pwr.is_power_connected, PLAT_isPowerConnected());
 
 	// this is technically redundant, but PWR_update() might not always be called to conserve battery and cycles
 	LEDS_applyRules();
@@ -4421,7 +4429,7 @@ static void PWR_waitForWake(void)
 			SDL_Delay(200);
 			if (SDL_GetTicks() - sleep_ticks >= sleepDelay)
 			{ // increased to two minutes
-				if (SDL_AtomicGet(&pwr.is_charging) ||
+				if (SDL_AtomicGet(&pwr.is_charging) || SDL_AtomicGet(&pwr.is_power_connected) ||
 					(CFG_getKeepAwakeWhenUSB() && SDL_AtomicGet(&pwr.is_usb_connected)))
 				{
 					sleep_ticks += 60000; // check again in a minute
@@ -4503,7 +4511,7 @@ void PWR_enableAutosleep(void)
 }
 int PWR_preventAutosleep(void)
 {
-	return SDL_AtomicGet(&pwr.is_charging) || !pwr.can_autosleep || GetHDMI() ||
+	return SDL_AtomicGet(&pwr.is_charging) || SDL_AtomicGet(&pwr.is_power_connected) || !pwr.can_autosleep || GetHDMI() ||
 		   (CFG_getKeepAwakeWhenUSB() && SDL_AtomicGet(&pwr.is_usb_connected));
 }
 

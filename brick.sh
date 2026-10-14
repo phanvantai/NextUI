@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Dev loop for the TrimUI Brick over adb: build, push nextui.elf, restart the launcher.
 #
-#   ./brick.sh deploy     build tg5040, push nextui.elf, restart NextUI
+#   ./brick.sh deploy     build tg5040, push nextui.elf + minarch.elf, restart NextUI
 #   ./brick.sh push       push the last build without rebuilding
 #   ./brick.sh restart    restart NextUI (the launcher loop respawns it)
-#   ./brick.sh restore    put back the stock nextui.elf (saved as nextui.elf.orig)
+#   ./brick.sh restore    put back the stock binaries (saved as <name>.orig)
 #   ./brick.sh log        follow NextUI's log
 #   ./brick.sh shell      open a shell on the Brick
 #   ./brick.sh press BTN… press buttons: a b x y l1 r1 select start menu up down left right
@@ -18,7 +18,9 @@ cd "$(dirname "$0")"
 
 SYSTEM=/mnt/SDCARD/.system/tg5040
 LOG=/mnt/SDCARD/.userdata/tg5040/logs/nextui.txt
-ELF=workspace/all/nextui/build/tg5040/nextui.elf
+# binaries that get pushed to $SYSTEM/bin: nextui is the launcher, minarch runs
+# the games (it carries its own copy of the power/sleep code in api.c)
+ELFS="workspace/all/nextui/build/tg5040/nextui.elf workspace/all/minarch/build/tg5040/minarch.elf"
 
 find_brick() {
 	if [ -n "${BRICK_SERIAL:-}" ]; then
@@ -36,12 +38,16 @@ find_brick() {
 }
 
 push() {
-	[ -f "$ELF" ] || { echo "$ELF missing, run ./brick.sh deploy" >&2; exit 1; }
-	local serial
+	local serial elf name
 	serial=$(find_brick)
-	# push next to the live binary and rename over it, so the running copy is never truncated
-	adb -s "$serial" push "$ELF" "$SYSTEM/bin/nextui.elf.new"
-	adb -s "$serial" shell "mv $SYSTEM/bin/nextui.elf.new $SYSTEM/bin/nextui.elf && chmod +x $SYSTEM/bin/nextui.elf"
+	for elf in $ELFS; do
+		[ -f "$elf" ] || { echo "$elf missing, run ./brick.sh deploy" >&2; exit 1; }
+		name=$(basename "$elf")
+		# push next to the live binary and rename over it, so the running copy is
+		# never truncated. The first push keeps the stock binary as <name>.orig.
+		adb -s "$serial" push "$elf" "$SYSTEM/bin/$name.new"
+		adb -s "$serial" shell "cd $SYSTEM/bin && { [ -f $name.orig ] || cp $name $name.orig; } && mv $name.new $name && chmod +x $name"
+	done
 	restart "$serial"
 }
 
@@ -111,7 +117,7 @@ case "${1:-deploy}" in
 	restart) restart ;;
 	restore)
 		serial=$(find_brick)
-		adb -s "$serial" shell "cp $SYSTEM/bin/nextui.elf.orig $SYSTEM/bin/nextui.elf.new && mv $SYSTEM/bin/nextui.elf.new $SYSTEM/bin/nextui.elf"
+		adb -s "$serial" shell "cd $SYSTEM/bin && for orig in *.orig; do cp \$orig \${orig%.orig}.new && mv \${orig%.orig}.new \${orig%.orig} && echo restored \${orig%.orig}; done"
 		restart "$serial" ;;
 	log)     adb -s "$(find_brick)" shell "tail -n 50 -f $LOG" ;;
 	shell)   adb -s "$(find_brick)" shell ;;

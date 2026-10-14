@@ -741,6 +741,7 @@ int PLAT_supportsOverscan(void);
 void PLAT_getBatteryStatus(int* is_charging, int* charge); // 0,1 and 0,10,20,40,60,80,100
 void PLAT_getBatteryStatusFine(int* is_charging, int* charge); // 0,1 and 0-100
 int PLAT_isUSBConnected(void); // 1 if the device is configured as a USB gadget on a host, else 0
+int PLAT_isPowerConnected(void); // custom: 1 if external power is plugged in, charging or full, else 0
 void PLAT_enableBacklight(int enable);
 int PLAT_supportsDeepSleep(void);
 int PLAT_deepSleep(void);

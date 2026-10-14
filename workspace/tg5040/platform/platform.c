@@ -189,6 +189,13 @@ void PLAT_getBatteryStatusFine(int *is_charging, int *charge)
 	}
 }
 
+// custom: the charger is "online" whether or not the battery is still charging,
+// a full battery reports time_to_full_now=0 and so isn't is_charging
+int PLAT_isPowerConnected(void)
+{
+	return getInt("/sys/class/power_supply/axp2202-usb/online") == 1;
+}
+
 int PLAT_isUSBConnected(void)
 {
 	// The UDC (USB Device Controller) reports "configured" once a host has
