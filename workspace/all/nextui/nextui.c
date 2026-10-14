@@ -950,6 +950,141 @@ static Array* getRecents(void) {
 	return entries;
 }
 
+///////////////////////////////////////
+// custom: the game switcher lists every game, not just recents
+
+static Array* switcher = NULL; // Entry*, recently played first, then the rest by name
+static int switcher_recent_count = 0; // the first n entries of switcher came from recents
+
+static char* fileName(char* path) {
+	char* slash = strrchr(path, '/');
+	return slash ? slash+1 : path;
+}
+
+// the same game copied into two folders (eg. SFC and SUPA) shows up once
+static int indexOfFileName(Array* entries, char* path) {
+	for (int i=0; i<entries->count; i++) {
+		Entry* entry = entries->items[i];
+		if (exactMatch(fileName(entry->path), fileName(path))) return i;
+	}
+	return -1;
+}
+
+// <dir>/map.txt holds "filename<tab>display name" lines, same file the game list reads
+static Hash* loadMap(char* dir) {
+	Hash* map = Hash_new();
+	char map_path[MAX_PATH];
+	snprintf(map_path, sizeof(map_path), "%s/map.txt", dir);
+	FILE* file = fopen(map_path, "r");
+	if (!file) return map;
+
+	char line[512];
+	while (fgets(line, sizeof(line), file)) {
+		normalizeNewline(line);
+		trimTrailingNewlines(line);
+		char* tab = strchr(line, '\t');
+		if (!tab) continue;
+		*tab = '\0';
+		Hash_set(map, line, tab+1);
+	}
+	fclose(file);
+	return map;
+}
+
+// the game list applies map.txt names in Directory_index(), the switcher builds
+// its own entries so it has to do the same
+static void applyMapNames(Array* entries) {
+	char map_dir[MAX_PATH] = "";
+	Hash* map = NULL;
+	for (int i=0; i<entries->count; i++) {
+		Entry* entry = entries->items[i];
+		char dir[MAX_PATH];
+		strncpy(dir, entry->path, sizeof(dir) - 1);
+		dir[sizeof(dir) - 1] = '\0';
+		char* slash = strrchr(dir, '/');
+		if (slash) *slash = '\0';
+
+		// entries come grouped by folder, so one cached map is enough
+		if (!map || !exactMatch(dir, map_dir)) {
+			if (map) Hash_free(map);
+			map = loadMap(dir);
+			strcpy(map_dir, dir);
+		}
+
+		char* alias = Hash_get(map, fileName(entry->path));
+		if (alias) {
+			free(entry->name);
+			entry->name = strdup(alias);
+		}
+	}
+	if (map) Hash_free(map);
+}
+
+static void Switcher_refresh(void) {
+	if (switcher) EntryArray_free(switcher);
+	switcher = Array_new();
+
+	for (int i=0; i<recents->count; i++) {
+		Entry* entry = entryFromRecent(recents->items[i]);
+		if (!entry) continue;
+		if (entry->type!=ENTRY_ROM || indexOfFileName(switcher, entry->path)>=0) Entry_free(entry);
+		else Array_push(switcher, entry);
+	}
+	switcher_recent_count = switcher->count;
+	applyMapNames(switcher);
+
+	Array* games = Array_new();
+	Array* systems = getRoms();
+	for (int i=0; i<systems->count; i++) {
+		Entry* system = systems->items[i];
+		Array* roms = getEntries(system->path);
+		for (int j=0; j<roms->count; j++) {
+			Entry* rom = roms->items[j];
+			if (rom->type!=ENTRY_ROM || indexOfFileName(switcher, rom->path)>=0) {
+				Entry_free(rom);
+				continue;
+			}
+			int dupe = indexOfFileName(games, rom->path);
+			if (dupe<0) {
+				Array_push(games, rom);
+			}
+			else if (strcmp(rom->path, ((Entry*)games->items[dupe])->path)<0) {
+				// keep the alphabetically first folder so the pick is stable, eg. SFC over SUPA
+				Entry_free(games->items[dupe]);
+				games->items[dupe] = rom;
+			}
+			else {
+				Entry_free(rom);
+			}
+		}
+		Array_free(roms);
+	}
+	EntryArray_free(systems);
+
+	applyMapNames(games);
+	EntryArray_sort(games);
+	Array_yoink(switcher, games);
+}
+
+// box art lives next to the rom, same as the game list thumbnails: <dir>/.media/<rom name>.png
+static int getBoxArtPath(Entry* entry, char* out_path) {
+	char dir[MAX_PATH];
+	strncpy(dir, entry->path, sizeof(dir) - 1);
+	dir[sizeof(dir) - 1] = '\0';
+	char* slash = strrchr(dir, '/');
+	if (!slash) return 0;
+	*slash = '\0';
+
+	char name[MAX_PATH];
+	strncpy(name, slash+1, sizeof(name) - 1);
+	name[sizeof(name) - 1] = '\0';
+	char* dot = strrchr(name, '.');
+	if (dot) *dot = '\0';
+
+	snprintf(out_path, MAX_PATH, "%s/.media/%s.png", dir, name);
+	return exists(out_path);
+}
+
 static Array* getCollection(char* path) {
 	Array* entries = Array_new();
 	FILE* file = fopen(path, "r");
@@ -1740,12 +1875,15 @@ static void Menu_init(void) {
 	loadLast(); // restore state when available
 
 	QuickMenu_init(); // needs Menu_init
+	Switcher_refresh(); // needs recents, loaded by openDirectory(SDCARD_PATH)
 }
 static void Menu_quit(void) {
 	RecentArray_free(recents);
 	DirectoryArray_free(stack);
 
 	QuickMenu_quit();
+	EntryArray_free(switcher);
+	switcher = NULL;
 }
 
 ///////////////////////////////////////
@@ -2356,7 +2494,10 @@ int main (int argc, char *argv[]) {
 	// LOG_info("- menu init: %lu\n", SDL_GetTicks() - main_begin);
 
 	int lastScreen = SCREEN_OFF;
-	int currentScreen = CFG_getDefaultView();
+	// custom: the default view is for boot only. LAST_PATH lives in /tmp, so it
+	// only exists when we're coming back from a game or pak launched from the
+	// list (or the settings page), and that's where the user should land.
+	int currentScreen = exists(LAST_PATH) ? SCREEN_GAMELIST : CFG_getDefaultView();
 
 	if(exists(GAME_SWITCHER_PERSIST_PATH)) {
 		// consider this "consumed", dont bring up the switcher next time we regularly exit a game
@@ -2536,37 +2677,43 @@ int main (int argc, char *argv[]) {
 				dirty = 1;
 				folderbgchanged = 1; // The background painting code is a clusterfuck, just force a repaint here
 			}
-			else if (recents->count > 0 && PAD_justReleased(BTN_A)) {
+			else if (switcher->count > 0 && PAD_justReleased(BTN_A)) {
 				// this will drop us back into game switcher after leaving the game
 				putFile(GAME_SWITCHER_PERSIST_PATH, "unused");
 				startgame = 1;
-				Entry *selectedEntry = entryFromRecent(recents->items[switcher_selected]);
 				should_resume = can_resume;
-				Entry_open(selectedEntry);
+				Entry_open(switcher->items[switcher_selected]);
 				dirty = 1;
-				Entry_free(selectedEntry);
 			}
-			else if (recents->count > 0 && PAD_justReleased(BTN_Y)) {
-				// remove
-				Recent* recentEntry = recents->items[switcher_selected--];
-				Array_remove(recents, recentEntry);
-				Recent_free(recentEntry);
+			else if (switcher_selected < switcher_recent_count && PAD_justReleased(BTN_Y)) {
+				// remove from recents, the game drops down into the alphabetical part
+				Entry* entry = switcher->items[switcher_selected];
+				for (int i=0; i<recents->count; i++) {
+					Recent* recent = recents->items[i];
+					char sd_path[256];
+					snprintf(sd_path, sizeof(sd_path), "%s%s", SDCARD_PATH, recent->path);
+					if (!exactMatch(sd_path, entry->path)) continue;
+					Array_remove(recents, recent);
+					Recent_free(recent);
+					break;
+				}
 				saveRecents();
-				if(switcher_selected < 0)
-					switcher_selected = recents->count - 1; // wrap
+				Switcher_refresh();
+				if(switcher_selected >= switcher->count)
+					switcher_selected = 0; // wrap
 				dirty = 1;
 			}
-			else if (PAD_justPressed(BTN_RIGHT)) {
+			else if (switcher->count > 0 && PAD_justPressed(BTN_RIGHT)) {
 				switcher_selected++;
-				if(switcher_selected == recents->count)
+				if(switcher_selected == switcher->count)
 					switcher_selected = 0; // wrap
 				dirty = 1;
 				gsanimdir = SLIDE_LEFT;
 			}
-			else if (PAD_justPressed(BTN_LEFT)) {
+			else if (switcher->count > 0 && PAD_justPressed(BTN_LEFT)) {
 				switcher_selected--;
 				if(switcher_selected < 0)
-					switcher_selected = recents->count - 1; // wrap
+					switcher_selected = switcher->count - 1; // wrap
 				dirty = 1;
 				gsanimdir = SLIDE_RIGHT;
 			}
@@ -2915,10 +3062,12 @@ int main (int argc, char *argv[]) {
 				ox = 0;
 				oy = 0;
 
-				// For all recents with resumable state (i.e. has savegame), show game switcher carousel
-				if(recents->count > 0) {
-					Entry *selectedEntry = entryFromRecent(recents->items[switcher_selected]);
+				// custom: every game, box art first, the save state screenshot when there's no art
+				if(switcher->count > 0) {
+					Entry *selectedEntry = switcher->items[switcher_selected];
 					readyResume(selectedEntry);
+					char art_path[MAX_PATH];
+					int has_art = getBoxArtPath(selectedEntry, art_path);
 					// title pill
 					{
 						int max_width = screen->w - SCALE1(PADDING * 2) - ow;
@@ -2953,13 +3102,14 @@ int main (int argc, char *argv[]) {
 
 					GFX_blitButtonGroup((char*[]){ "B","BACK",  NULL }, 0, screen, 0);
 
-					if(can_resume) GFX_blitButtonGroup((char*[]){ "Y", "REMOVE", "A","RESUME", NULL }, 1, screen, 1);
-					else GFX_blitButtonGroup((char*[]){ "A","OPEN", NULL }, 1, screen, 1);
+					char* open_label = can_resume ? "RESUME" : "OPEN";
+					if(switcher_selected < switcher_recent_count) GFX_blitButtonGroup((char*[]){ "Y", "REMOVE", "A",open_label, NULL }, 1, screen, 1);
+					else GFX_blitButtonGroup((char*[]){ "A",open_label, NULL }, 1, screen, 1);
 
-					if(has_preview) {
+					if(has_art || has_preview) {
 						// lotta memory churn here
 
-						SDL_Surface* bmp = IMG_Load(preview_path);
+						SDL_Surface* bmp = IMG_Load(has_art ? art_path : preview_path);
 						SDL_Surface* raw_preview = SDL_ConvertSurfaceFormat(bmp, screen->format->format, 0);
 						if (raw_preview) {
 							SDL_FreeSurface(bmp);
@@ -3035,12 +3185,11 @@ int main (int argc, char *argv[]) {
 						SDL_FreeSurface(tmpsur);
 						GFX_blitMessage(font.large, "No Preview", screen, &preview_rect);
 					}
-					Entry_free(selectedEntry);
 				}
 				else {
 					SDL_Rect preview_rect = {ox,oy,screen->w,screen->h};
 					SDL_FillRect(screen, &preview_rect, 0);
-					GFX_blitMessage(font.large, "No Recents", screen, &preview_rect);
+					GFX_blitMessage(font.large, "No Games", screen, &preview_rect);
 					GFX_blitButtonGroup((char*[]){ "B","BACK", NULL }, 1, screen, 1);
 				}
 

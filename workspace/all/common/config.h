@@ -240,7 +240,7 @@ typedef struct
 #define CFG_DEFAULT_FN_ACTION "" // unassigned
 #define CFG_DEFAULT_GAMEARTWIDTH 0.45
 #define CFG_DEFAULT_WIFI false
-#define CFG_DEFAULT_VIEW SCREEN_GAMELIST
+#define CFG_DEFAULT_VIEW SCREEN_GAMESWITCHER // custom: boot into the game switcher
 #define CFG_DEFAULT_SHOWQUICKWITCHERUI true
 #define CFG_DEFAULT_WIFI_DIAG false
 #define CFG_DEFAULT_SHOWTOOLS true
