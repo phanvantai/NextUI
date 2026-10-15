@@ -2532,6 +2532,9 @@ int main (int argc, char *argv[]) {
 					openSettings();
 					animationdirection = SLIDE_LEFT;
 				}
+				// top changed: the selection sync below would otherwise copy the old
+				// list's row into the new one (out of range on a short settings page)
+				selected = top->selected;
 				total = top->entries->count;
 				dirty = 1;
 				if (total>0) readyResume(top->entries->items[top->selected]);
