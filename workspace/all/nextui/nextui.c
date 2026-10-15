@@ -239,8 +239,19 @@ static void getUniqueName(Entry* entry, char* out_name) {
 	strcpy(tmp, ")");
 }
 
+static int isConsoleDir(char* path);
+static void applyMapNames(Array* entries);
+
 static void Directory_index(Directory* self) {
     int skip_index = exactMatch(FAUX_SETTINGS_PATH, self->path); // not alphabetized
+
+    // custom: a console folder collates its sibling folders (SFC + SUPA), but
+    // the map.txt below is only self->path's. Name every game from its own
+    // folder's map first, so a game kept only in SUPA gets its name too.
+    if (isConsoleDir(self->path)) {
+        applyMapNames(self->entries);
+        EntryArray_sort(self->entries);
+    }
 
     Hash* map = NULL;
     char map_path[256];
