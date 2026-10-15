@@ -27,8 +27,6 @@ ELFS="workspace/all/nextui/build/tg5040/nextui.elf|$SYSTEM/bin
 workspace/all/minarch/build/tg5040/minarch.elf|$SYSTEM/bin
 workspace/all/settings/build/tg5040/settings.elf|$TOOLS/Settings.pak
 workspace/all/gametime/build/tg5040/gametime.elf|$TOOLS/Game Tracker.pak
-workspace/all/minput/build/tg5040/minput.elf|$TOOLS/Input.pak
-workspace/all/ledcontrol/build/tg5040/ledcontrol.elf|$TOOLS/LedControl.pak
 workspace/all/bootlogo/build/tg5040/bootlogo.elf|$TOOLS/Bootlogo.pak"
 
 find_brick() {

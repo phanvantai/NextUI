@@ -117,7 +117,6 @@ trimui_inputd &
 sh "$SYSTEM_PATH/bin/governor.sh" "auto"
 
 keymon.elf & # &> $SDCARD_PATH/keymon.txt &
-batmon.elf & # &> $SDCARD_PATH/batmon.txt &
 
 # start fresh, will be populated on the next connect
 rm -f $USERDATA_PATH/.asoundrc

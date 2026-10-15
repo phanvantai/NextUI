@@ -13,7 +13,6 @@ endif
 REQUIRES_EVTEST=other/evtest
 REQUIRES_JSTEST=other/jstest
 REQUIRES_UNZIP60=other/unzip60
-REQUIRES_FILEMGR=other/NextCommander
 REQUIRES_SDL2=other/sdl2
 
 .PHONY: curl-runtime
@@ -23,7 +22,7 @@ all: readmes
 # SDL2 (mali-fbdev, alsa-shared, joystick patch) is prebaked into h700-toolchain
 # at PREFIX_LOCAL. Stage it + SDK companion libs into other/sdl2/output for packaging.
 # Rebuild only via the toolchain image (support/build-sdl2.sh + support/sdl2-h700.patch).
-early: $(REQUIRES_EVTEST) $(REQUIRES_JSTEST) $(REQUIRES_UNZIP60) $(REQUIRES_FILEMGR) curl-runtime
+early: $(REQUIRES_EVTEST) $(REQUIRES_JSTEST) $(REQUIRES_UNZIP60) curl-runtime
 	mkdir -p other
 	cd $(REQUIRES_EVTEST) && $(CROSS_COMPILE)gcc -o evtest evtest.c
 	cd $(REQUIRES_JSTEST) && $(CROSS_COMPILE)gcc -o jstest jstest.c
@@ -40,14 +39,12 @@ early: $(REQUIRES_EVTEST) $(REQUIRES_JSTEST) $(REQUIRES_UNZIP60) $(REQUIRES_FILE
 	# SDL2_image dlopens libpng12.so.0 at runtime; the H700 stock OS only has
 	# a 32-bit copy under /mnt/vendor/lib, so bundle the toolchain's 64-bit one
 	cp -L $(PREFIX)/lib/libpng12.so.0 $(REQUIRES_SDL2)/output/
-	cd $(REQUIRES_FILEMGR) && make -j
 	cd boot && sh build.sh
 
 curl-runtime: curl/build.sh
 	cd curl && sh build.sh
 
 clean:
-	cd $(REQUIRES_FILEMGR) && make clean PLATFORM=h700
 	cd $(REQUIRES_UNZIP60) && make -f unix/Makefile.trimuismart clean
 	rm -rf $(REQUIRES_SDL2)/output
 	rm -rf curl/output curl/curl-* curl/musl-* curl/openssl-*
@@ -55,9 +52,6 @@ clean:
 
 ###########################################################
 
-$(REQUIRES_FILEMGR):
-	git clone --depth 1 https://github.com/LoveRetro/NextCommander.git $(REQUIRES_FILEMGR)
-	
 $(REQUIRES_EVTEST):
 	git clone --depth 1 https://github.com/freedesktop-unofficial-mirror/evtest.git $(REQUIRES_EVTEST)
 

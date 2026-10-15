@@ -19,14 +19,9 @@ ifeq ($(PLATFORM), desktop)
 	cd ./$(PLATFORM) && make early # eg. other libs
 	cd ./all/nextui/ && make
 	cd ./all/minarch/ && make
-	#cd ./all/libbatmondb/ && make
-	#cd ./all/battery/ && make
-	cd ./all/clock/ && make
-	#cd ./all/batmon/ && make
 	#cd ./all/libgametimedb/ && make
 	#cd ./all/gametimectl/ && make
 	#cd ./all/gametime/ && make
-	cd ./all/minput/ && make
 	cd ./all/nextval/ && make
 	cd ./all/settings/ && make
 else 
@@ -43,19 +38,13 @@ endif
 	cd ./$(PLATFORM)/keymon && make
 	cd ./all/nextui/ && make
 	cd ./all/minarch/ && make
-	cd ./all/battery/ && make
-	cd ./all/clock/ && make
-	cd ./all/libbatmondb/ && make
-	cd ./all/batmon/ && make
 	cd ./all/libgametimedb/ && make
 	cd ./all/gametimectl/ && make
 	cd ./all/gametime/ && make
-	cd ./all/minput/ && make
 	cd ./all/syncsettings/ && make
 	cd ./all/nextval/ && make
 	cd ./all/settings/ && make
 ifneq (,$(filter $(PLATFORM),tg5040 tg5050 h700))
-	cd ./all/ledcontrol/ && make
 endif
 ifneq (,$(filter $(PLATFORM),tg5040 tg5050 h700))
 	cd ./all/bootlogo/ && make
@@ -84,13 +73,11 @@ ifneq ($(PLATFORM), desktop)
 	cd ./$(PLATFORM)/keymon && make clean
 	cd ./all/syncsettings/ && make clean
 ifneq (,$(filter $(PLATFORM),tg5040 tg5050 h700))
-	cd ./all/ledcontrol/ && make clean
 endif
 ifneq (,$(filter $(PLATFORM),tg5040 tg5050 h700))
 	cd ./all/bootlogo/ && make clean
 endif
 	cd ./all/show2/ && make clean
-	cd ./all/batmon/ && make clean
 ifeq ($(PLATFORM), tg5040)
 	cd ./$(PLATFORM)/rfkill && make clean
 	cd ./$(PLATFORM)/btmanager && make clean
@@ -103,13 +90,9 @@ endif
 	cd ./$(PLATFORM)/libmsettings && make clean
 	cd ./all/nextui/ && make clean
 	cd ./all/minarch/ && make clean
-	cd ./all/battery/ && make clean
-	cd ./all/clock/ && make clean
-	cd ./all/libbatmondb/ && make clean
 	cd ./all/libgametimedb/ && make clean
 	cd ./all/gametimectl/ && make clean
 	cd ./all/gametime/ && make clean
-	cd ./all/minput/ && make clean
 	cd ./all/nextval/ && make clean
 	cd ./all/settings/ && make clean
 	cd ./all/audiomon/ && make clean

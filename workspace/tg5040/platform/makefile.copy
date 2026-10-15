@@ -12,5 +12,3 @@ $(PLATFORM):
 	cp ./workspace/$@/btmanager/build/nextui.upgrade_bluez.pakz ./build/BASE/nextui.upgrade_bluez.tg5040.pakz
 
 	# extras
-	cp ./workspace/$@/other/NextCommander/output/NextCommander ./build/EXTRAS/Tools/$@/Files.pak/
-	cp -r ./workspace/$@/other/NextCommander/res ./build/EXTRAS/Tools/$@/Files.pak/
