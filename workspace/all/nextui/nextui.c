@@ -240,12 +240,11 @@ static void getUniqueName(Entry* entry, char* out_name) {
 }
 
 static void Directory_index(Directory* self) {
-    int is_collection = prefixMatch(COLLECTIONS_PATH, self->path);
-    int skip_index = exactMatch(FAUX_RECENT_PATH, self->path) || exactMatch(FAUX_SETTINGS_PATH, self->path) || is_collection; // not alphabetized
+    int skip_index = exactMatch(FAUX_SETTINGS_PATH, self->path); // not alphabetized
 
     Hash* map = NULL;
     char map_path[256];
-    sprintf(map_path, "%s/map.txt", is_collection ? COLLECTIONS_PATH : self->path);
+    sprintf(map_path, "%s/map.txt", self->path);
 
     if (exists(map_path)) {
         FILE* file = fopen(map_path, "r");
@@ -352,8 +351,6 @@ static void Directory_index(Directory* self) {
 
 static Array* getRoot(void);
 static Array* getRoms(void);
-static Array* getRecents(void);
-static Array* getCollection(char* path);
 static Array* getDiscs(char* path);
 static Array* getEntries(char* path);
 static Array* getSettings(void);
@@ -368,17 +365,11 @@ static Directory* Directory_new(char* path, int selected) {
 	if (exactMatch(path, SDCARD_PATH)) {
 		self->entries = getRoot();
 	}
-	else if (exactMatch(path, FAUX_RECENT_PATH)) {
-		self->entries = getRecents();
-	}
 	else if (exactMatch(path, FAUX_SETTINGS_PATH)) {
 		self->entries = getSettings();
 	}
 	else if (exactMatch(path, ROMS_PATH)) {
 		self->entries = getRoms();
-	}
-	else if (!exactMatch(path, COLLECTIONS_PATH) && prefixMatch(COLLECTIONS_PATH, path) && suffixMatch(".txt", path)) {
-		self->entries = getCollection(path);
 	}
 	else if (suffixMatch(".m3u", path)) {
 		self->entries = getDiscs(path);
@@ -459,14 +450,11 @@ static void RecentArray_free(Array* self) {
 static Directory* top;
 static Array* stack; // DirectoryArray
 static Array* recents; // RecentArray
-static Array *quick; // EntryArray
-static Array *quickActions; // EntryArray
 
 static int quit = 0;
 static int can_resume = 0;
 static int should_resume = 0; // set to 1 on BTN_RESUME but only if can_resume==1
 static int has_preview = 0;
-static int simple_mode = 0;
 static int switcher_selected = 0;
 static char slot_path[256];
 static char preview_path[256];
@@ -663,20 +651,6 @@ static int hasRecents(void) {
 	StringArray_free(parent_paths);
 	return has>0;
 }
-static int hasCollections(void) {
-	int has = 0;
-	if (!exists(COLLECTIONS_PATH)) return has;
-
-	DIR *dh = opendir(COLLECTIONS_PATH);
-	struct dirent *dp;
-	while((dp = readdir(dh)) != NULL) {
-		if (hide(dp->d_name)) continue;
-		has = 1;
-		break;
-	}
-	closedir(dh);
-	return has;
-}
 static int hasRoms(char* dir_name) {
 	int has = 0;
 	char emu_name[256];
@@ -786,77 +760,7 @@ static Array* getRoms()
 	return entries;
 }
 
-static Array* getCollections(void)
-{
-	DIR* dh = opendir(COLLECTIONS_PATH);
-	if (dh) {
-		struct dirent* dp;
-		char full_path[256];
-		snprintf(full_path, sizeof(full_path), "%s/", COLLECTIONS_PATH);
-		char* tmp = full_path + strlen(full_path);
-
-		Array* collections = Array_new();
-		while ((dp = readdir(dh)) != NULL) {
-			if (hide(dp->d_name)) continue;
-			strcpy(tmp, dp->d_name);
-			Array_push(collections, Entry_new(full_path, ENTRY_DIR)); // Collections are fake directories
-		}
-		closedir(dh); // Close immediately after use
-		EntryArray_sort(collections);
-		return collections;
-	}
-	return NULL;
-}
-
-static Array* getQuickEntries(void) {
-	Array* entries = Array_new();
-
-	// We assume Menu_init was already called and populated this
-	if (recents && recents->count)
-		Array_push(entries, Entry_newNamed(FAUX_RECENT_PATH, ENTRY_DIR, "Recents"));
-
-	if (hasCollections())
-		Array_push(entries, Entry_new(COLLECTIONS_PATH, ENTRY_DIR));
-
-	// Not sure we need this, its just a button press away (B)
-	Array_push(entries, Entry_newNamed(ROMS_PATH, ENTRY_DIR, "Games"));
-
-	// Add tools if applicable
-    if (hasTools() && !simple_mode) {
-		char tools_path[256];
-		snprintf(tools_path, sizeof(tools_path), "%s/Tools/%s", SDCARD_PATH, PLATFORM);
-        Array_push(entries, Entry_new(tools_path, ENTRY_DIR));
-    }
-
-	return entries;
-}
-
-static Array* getQuickToggles(void) {
-	Array *entries = Array_new();
-
-	Entry *settings = entryFromPakName("Settings");
-	if (settings)
-		Array_push(entries, settings);
-
-	Entry *store = entryFromPakName("Pak Store");
-	if (store)
-		Array_push(entries, store);
-
-	// quick actions
-	if(WIFI_supported())
-		Array_push(entries, Entry_new("Wifi", ENTRY_DIP));
-	if(BT_supported())
-		Array_push(entries, Entry_new("Bluetooth", ENTRY_DIP));
-	if(PLAT_supportsDeepSleep() && !simple_mode)
-		Array_push(entries, Entry_new("Sleep", ENTRY_DIP));
-	Array_push(entries, Entry_new("Reboot", ENTRY_DIP));
-	Array_push(entries, Entry_new("Poweroff", ENTRY_DIP));
-
-	return entries;
-}
-
-// Quick menu DIPs use a bare name as their path ("Wifi"), settings page DIPs
-// live under FAUX_SETTINGS_PATH so the list code can treat them like files.
+// settings actions live under FAUX_SETTINGS_PATH ("…/Settings/Wifi"), the key is the last part
 static const char* dipKey(Entry* self) {
 	char* slash = strrchr(self->path, '/');
 	return slash ? slash+1 : self->path;
@@ -947,7 +851,7 @@ static Array* getSettings(void) {
 	if (settings)
 		Array_push(entries, settings);
 
-	if (hasTools() && !simple_mode) {
+	if (hasTools()) {
 		char tools_path[256];
 		snprintf(tools_path, sizeof(tools_path), "%s/Tools/%s", SDCARD_PATH, PLATFORM);
 		Array* tools = getEntries(tools_path);
@@ -986,17 +890,6 @@ static Entry* entryFromRecent(Recent* recent)
 		entry->name = strdup(recent->alias);
 	}
 	return entry;
-}
-
-static Array* getRecents(void) {
-	Array* entries = Array_new();
-	for (int i=0; i<recents->count; i++) {
-		Recent *recent = recents->items[i];
-		Entry *entry = entryFromRecent(recent);
-		if(entry)
-			Array_push(entries, entry);
-	}
-	return entries;
 }
 
 ///////////////////////////////////////
@@ -1134,33 +1027,6 @@ static int getBoxArtPath(Entry* entry, char* out_path) {
 	return exists(out_path);
 }
 
-static Array* getCollection(char* path) {
-	Array* entries = Array_new();
-	FILE* file = fopen(path, "r");
-	if (file) {
-		char line[256];
-		while (fgets(line,256,file)!=NULL) {
-			normalizeNewline(line);
-			trimTrailingNewlines(line);
-			if (strlen(line)==0) continue; // skip empty lines
-
-			char sd_path[256];
-			sprintf(sd_path, "%s%s", SDCARD_PATH, line);
-			if (exists(sd_path)) {
-				int type = suffixMatch(".pak", sd_path) ? ENTRY_PAK : ENTRY_ROM; // ???
-				Array_push(entries, Entry_new(sd_path, type));
-
-				// char emu_name[256];
-				// getEmuName(sd_path, emu_name);
-				// if (hasEmu(emu_name)) {
-					// Array_push(entries, Entry_new(sd_path, ENTRY_ROM));
-				// }
-			}
-		}
-		fclose(file);
-	}
-	return entries;
-}
 static Array* getDiscs(char* path){
 
 	// TODO: does path have SDCARD_PATH prefix?
@@ -1248,12 +1114,7 @@ static void addEntries(Array* entries, char* path) {
 				}
 			}
 			else {
-				if (prefixMatch(COLLECTIONS_PATH, full_path)) {
-					type = ENTRY_DIR; // :shrug:
-				}
-				else {
-					type = ENTRY_ROM;
-				}
+				type = ENTRY_ROM;
 			}
 			Array_push(entries, Entry_new(full_path, type));
 		}
@@ -1427,8 +1288,6 @@ static int autoResume(void) {
 	getEmuPath(emu_name, emu_path);
 
 	if (!exists(emu_path)) return 0;
-
-	// putFile(LAST_PATH, FAUX_RECENT_PATH); // saveLast() will crash here because top is NULL
 
 	char act[256];
 	sprintf(act, "gametimectl.elf start '%s'", escapeSingleQuotes(sd_path));
@@ -1742,21 +1601,17 @@ static void closeDirectory(void) {
 
 static void cleanupImageLoaderPool(void); // Forward declaration
 
-static void toggleQuick(Entry* self)
+static void runSettingsAction(Entry* self)
 {
 	if(!self)
 		return;
 
-	// match on the path, settings page labels carry state ("Wifi: On")
 	const char* key = dipKey(self);
 	if(!strcmp(key, "Wifi")) {
 		startToggle(1, !WIFI_enabled());
 	}
 	else if(!strcmp(key, "Bluetooth")) {
 		startToggle(0, !BT_enabled());
-	}
-	else if(!strcmp(key, "Sleep")) {
-		PWR_sleep();
 	}
 	else if(!strcmp(key, "Reboot")) {
 		cleanupImageLoaderPool();  // Stop worker threads before SDL cleanup
@@ -1772,19 +1627,7 @@ static void Entry_open(Entry* self) {
 	recent_alias = self->name;  // yiiikes
 	if (self->type==ENTRY_ROM) {
 		startgame = 1;
-		char *last = NULL;
-		if (prefixMatch(COLLECTIONS_PATH, top->path)) {
-			char* tmp;
-			char filename[256];
-
-			tmp = strrchr(self->path, '/');
-			if (tmp) strcpy(filename, tmp+1);
-
-			char last_path[256];
-			sprintf(last_path, "%s/%s", top->path, filename);
-			last = last_path;
-		}
-		openRom(self->path, last);
+		openRom(self->path, NULL);
 	}
 	else if (self->type==ENTRY_PAK) {
 		startgame = 1;
@@ -1794,7 +1637,7 @@ static void Entry_open(Entry* self) {
 		openDirectory(self->path, 1);
 	}
 	else if (self->type==ENTRY_DIP) {
-		toggleQuick(self);
+		runSettingsAction(self);
 	}
 }
 
@@ -1822,13 +1665,6 @@ static int closeSettings(void) {
 ///////////////////////////////////////
 
 static void saveLast(char* path) {
-	// special case for recently played
-	if (exactMatch(top->path, FAUX_RECENT_PATH)) {
-		// NOTE: that we don't have to save the file because
-		// your most recently played game will always be at
-		// the top which is also the default selection
-		path = FAUX_RECENT_PATH;
-	}
 	putFile(LAST_PATH, path);
 }
 static void loadLast(void) { // call after loading root directory
@@ -1855,13 +1691,7 @@ static void loadLast(void) { // call after loading root directory
 		Directory_free(settings);
 	}
 
-	char full_path[256];
-	strcpy(full_path, last_path);
-
 	char* tmp;
-	char filename[256];
-	tmp = strrchr(last_path, '/');
-	if (tmp) strcpy(filename, tmp);
 
 	Array* last = Array_new();
 	while (!exactMatch(last_path, SDCARD_PATH)) {
@@ -1886,7 +1716,7 @@ static void loadLast(void) { // call after loading root directory
 				Entry* entry = top->entries->items[i];
 
 				// NOTE: strlen() is required for collated_path, '\0' wasn't reading as NULL for some reason
-				if (exactMatch(entry->path, path) || (strlen(collated_path) && prefixMatch(collated_path, entry->path)) || (prefixMatch(COLLECTIONS_PATH, full_path) && suffixMatch(filename, entry->path))) {
+				if (exactMatch(entry->path, path) || (strlen(collated_path) && prefixMatch(collated_path, entry->path))) {
 					top->selected = i;
 					if (i>=top->end) {
 						top->start = i;
@@ -1896,7 +1726,7 @@ static void loadLast(void) { // call after loading root directory
 							top->start = top->end - MAIN_ROW_COUNT;
 						}
 					}
-					if (last->count==0 && !exactMatch(entry->path, FAUX_RECENT_PATH) && !(!exactMatch(entry->path, COLLECTIONS_PATH) && prefixMatch(COLLECTIONS_PATH, entry->path))) break; // don't show contents of auto-launch dirs
+					if (last->count==0) break; // don't show contents of auto-launch dirs
 
 					if (entry->type==ENTRY_DIR) {
 						openDirectory(entry->path, 0);
@@ -1918,15 +1748,6 @@ static void loadLast(void) { // call after loading root directory
 
 ///////////////////////////////////////
 
-static void QuickMenu_init(void) {
-	quick = getQuickEntries();
-	quickActions = getQuickToggles();
-}
-static void QuickMenu_quit(void) {
-	EntryArray_free(quick);
-	EntryArray_free(quickActions);
-}
-
 static void Menu_init(void) {
 	stack = Array_new(); // array of open Directories
 	recents = Array_new();
@@ -1934,7 +1755,6 @@ static void Menu_init(void) {
 	openDirectory(SDCARD_PATH, 0);
 	loadLast(); // restore state when available
 
-	QuickMenu_init(); // needs Menu_init
 	settingsActions = getSettingsActions();
 	Switcher_refresh(); // needs recents, loaded by openDirectory(SDCARD_PATH)
 }
@@ -1942,7 +1762,6 @@ static void Menu_quit(void) {
 	RecentArray_free(recents);
 	DirectoryArray_free(stack);
 
-	QuickMenu_quit();
 	EntryArray_free(settingsActions);
 	settingsActions = NULL;
 	EntryArray_free(switcher);
@@ -2531,8 +2350,6 @@ int main (int argc, char *argv[]) {
 
 	if (autoResume()) return 0; // nothing to do
 
-	simple_mode = exists(SIMPLE_MODE_PATH);
-
 	LOG_info("NextUI\n");
 	InitSettings();
 
@@ -2543,17 +2360,12 @@ int main (int argc, char *argv[]) {
 	// LOG_info("- input init: %lu\n", SDL_GetTicks() - main_begin);
 	VIB_init();
 	PWR_init();
-	if (!HAS_POWER_BUTTON && !simple_mode) PWR_disableSleep();
+	if (!HAS_POWER_BUTTON) PWR_disableSleep();
 	// LOG_info("- power init: %lu\n", SDL_GetTicks() - main_begin);
 
 	// start my threaded image loader :D
 	initImageLoaderPool();
 	Menu_init();
-	int qm_row = 0;
-	int qm_col = 0;
-	int qm_slot = 0;
-	int qm_shift = 0;
-	int qm_slots = QUICK_SWITCHER_COUNT > quick->count ? quick->count : QUICK_SWITCHER_COUNT;
 	// LOG_info("- menu init: %lu\n", SDL_GetTicks() - main_begin);
 
 	int lastScreen = SCREEN_OFF;
@@ -2561,6 +2373,7 @@ int main (int argc, char *argv[]) {
 	// only exists when we're coming back from a game or pak launched from the
 	// list (or the settings page), and that's where the user should land.
 	int currentScreen = exists(LAST_PATH) ? SCREEN_GAMELIST : CFG_getDefaultView();
+	if (currentScreen==SCREEN_QUICKMENU) currentScreen = SCREEN_GAMESWITCHER; // custom: the quick menu is gone
 
 	if(exists(GAME_SWITCHER_PERSIST_PATH)) {
 		// consider this "consumed", dont bring up the switcher next time we regularly exit a game
@@ -2622,7 +2435,7 @@ int main (int argc, char *argv[]) {
 			dirty = 1;
 
 		// user-assignable buttons, handled before the per-screen input so they work
-		// from the game list, the game switcher and the quick menu alike.
+		// from the game list and the game switcher alike.
 		// skipped while the brightness/volume overlay owns input, same as L1/R1 below.
 		if (!show_setting) {
 			if (PAD_justPressed(BTN_FN1)) runFnAction(0);
@@ -2647,97 +2460,7 @@ int main (int argc, char *argv[]) {
 
 		int gsanimdir = ANIM_NONE;
 
-		if (currentScreen == SCREEN_QUICKMENU) {
-			int qm_total = qm_row == 0 ? quick->count : quickActions->count;
-
-			if (PAD_justPressed(BTN_B) || PAD_tappedMenu(now)) {
-				currentScreen = SCREEN_GAMELIST;
-				folderbgchanged = 1; // The background painting code is a clusterfuck, just force a repaint here
-				dirty = 1;
-			}
-			else if (PAD_justReleased(BTN_A)) {
-				Entry *selected = qm_row == 0 ? quick->items[qm_col] : quickActions->items[qm_col];
-				if(selected->type != ENTRY_DIP) {
-					currentScreen = SCREEN_GAMELIST;
-					total = top->entries->count;
-					// prevent restoring list state, game list screen currently isnt our nav origin
-					top->selected = 0;
-					top->start = 0;
-					top->end = top->start + MAIN_ROW_COUNT;
-					restore_depth = -1;
-					restore_relative = -1;
-					restore_selected = 0;
-					restore_start = 0;
-					restore_end = 0;
-				}
-				Entry_open(selected);
-				if (top->entries->count > 0) readyResume(top->entries->items[top->selected]);
-				dirty = 1;
-			}
-			else if (PAD_justPressed(BTN_RIGHT)) {
-				if(qm_row == 0 && qm_total > qm_slots) {
-					qm_col++;
-					if(qm_col >= qm_total) {
-						qm_col = 0;
-						qm_shift = 0;
-						qm_slot = 0;
-					}
-					else {
-						qm_slot++;
-						if(qm_slot >= qm_slots) {
-							qm_slot = qm_slots - 1;
-							qm_shift++;
-						}
-					}
-				}
-				else {
-					qm_col += 1;
-					if(qm_col >= qm_total) {
-						qm_col = 0;
-					}
-				}
-				dirty = 1;
-			}
-			else if (PAD_justPressed(BTN_LEFT)) {
-				if(qm_row == 0  && qm_total > qm_slots) {
-					qm_col -= 1;
-					if(qm_col < 0) {
-						qm_col = qm_total - 1;
-						qm_shift = qm_total - qm_slots;
-						qm_slot = qm_slots - 1;
-					}
-					else {
-						qm_slot--;
-						if(qm_slot < 0) {
-							qm_slot = 0;
-							qm_shift--;
-						}
-					}
-				}
-				else {
-					qm_col -= 1;
-					if(qm_col < 0) {
-						qm_col = qm_total - 1;
-					}
-				}
-				dirty = 1;
-			}
-			else if(PAD_justPressed(BTN_DOWN)) {
-				if(qm_row == 0) {
-					qm_row = 1;
-					qm_col = 0;
-					dirty = 1;
-				}
-			}
-			else if(PAD_justPressed(BTN_UP)) {
-				if(qm_row == 1) {
-					qm_row = 0;
-					qm_col = qm_slot + qm_shift;
-					dirty = 1;
-				}
-			}
-		}
-		else if(currentScreen == SCREEN_GAMESWITCHER) {
+		if(currentScreen == SCREEN_GAMESWITCHER) {
 			// custom: the switcher is the home screen, only SELECT flips to the list
 			if (PAD_tappedSelect(now)) {
 				currentScreen = SCREEN_GAMELIST;
@@ -2830,7 +2553,7 @@ int main (int argc, char *argv[]) {
 				else if (PAD_justRepeated(BTN_LEFT)) settings_button = (settings_button + count - 1) % count;
 				else if (PAD_justRepeated(BTN_RIGHT)) settings_button = (settings_button + 1) % count;
 				else if (PAD_justPressed(BTN_A)) {
-					toggleQuick(settingsActions->items[settings_button]);
+					runSettingsAction(settingsActions->items[settings_button]);
 					pressed = 1;
 				}
 				if (settings_button!=before || pressed) dirty = 1;
@@ -2997,161 +2720,7 @@ int main (int argc, char *argv[]) {
 			}
 
 			int ow = GFX_blitHardwareGroup(screen, show_setting);
-			if (currentScreen == SCREEN_QUICKMENU) {
-				if(lastScreen != SCREEN_QUICKMENU) {
-					GFX_clearLayers(LAYER_BACKGROUND);
-					GFX_clearLayers(LAYER_THUMBNAIL);
-				}
-
-				Entry *current = qm_row == 0 ? quick->items[qm_col] : quickActions->items[qm_col];
-				char newBgPath[MAX_PATH];
-				char fallbackBgPath[MAX_PATH];
-
-				sprintf(newBgPath, SDCARD_PATH "/.media/quick_%s%s.png", current->name, 
-					!strcmp(current->name,"Wifi") && !CFG_getWifi() || 							// wifi or wifi_off, based on state
-					!strcmp(current->name,"Bluetooth") && !CFG_getBluetooth() ? "_off" : "");	// bluetooth or bluetooth_off, based on state
-				sprintf(fallbackBgPath, SDCARD_PATH "/.media/quick.png");
-
-				// background
-				if(!exists(newBgPath))
-					strncpy(newBgPath, fallbackBgPath, sizeof(newBgPath) - 1);
-
-				if(strcmp(newBgPath, folderBgPath) != 0) {
-					strncpy(folderBgPath, newBgPath, sizeof(folderBgPath) - 1);
-					startLoadFolderBackground(newBgPath, onBackgroundLoaded, NULL);
-				}
-
-				// buttons (duped and trimmed from below)
-				if (show_setting && !GetHDMI()) GFX_blitHardwareHints(screen, show_setting);
-				else GFX_blitButtonGroup((char*[]){ BTN_SLEEP==BTN_POWER?"POWER":"MENU","SLEEP",  NULL }, 0, screen, 0);
-
-				GFX_blitButtonGroup((char*[]){ "B","BACK", "A","OPEN", NULL }, 1, screen, 1);
-
-				if(CFG_getShowQuickswitcherUI()) {
-					#define MENU_ITEM_SIZE 72 // item size, top line
-					#define MENU_MARGIN_Y 32 // space between main UI elements and quick menu
-					#define MENU_MARGIN_X 40 // space between main UI elements and quick menu
-					#define MENU_ITEM_MARGIN 18 // space between items, top line
-					#define MENU_TOGGLE_MARGIN 8 // space between items, bottom line
-					#define MENU_LINE_MARGIN 8 // space between top and bottom line
-
-					// this is flexible, not sure I like it at smaller scales than 3 though
-					//int item_size = screen->h - SCALE1(PADDING + PILL_SIZE + BUTTON_MARGIN + // top pill area
-					//	MENU_MARGIN_Y + MENU_LINE_MARGIN + PILL_SIZE + MENU_MARGIN_Y + // our own area
-					//	BUTTON_MARGIN + PILL_SIZE + PADDING); // bottom pill area
-
-					int item_space_y = screen->h - SCALE1(PADDING + PILL_SIZE + BUTTON_MARGIN + // top pill area
-						MENU_MARGIN_Y + MENU_LINE_MARGIN + PILL_SIZE + MENU_MARGIN_Y + // our own area
-						BUTTON_MARGIN + PILL_SIZE + PADDING);
-					int item_size = SCALE1(MENU_ITEM_SIZE);
-					int item_extra_y = item_space_y - item_size;
-					int item_space_x = screen->w - SCALE1(PADDING + MENU_MARGIN_X + MENU_MARGIN_X + PADDING);
-					// extra left margin for the first item in order to properly center all of them in the
-					// available space
-					int item_inset_x = (item_space_x - SCALE1(qm_slots * MENU_ITEM_SIZE + (qm_slots - 1) * MENU_ITEM_MARGIN)) / 2;
-
-					// primary
-					ox = SCALE1(PADDING + MENU_MARGIN_X) + item_inset_x;
-					oy = SCALE1(PADDING + PILL_SIZE + BUTTON_MARGIN + MENU_MARGIN_Y) + item_extra_y / 2;
-					// just to keep selection visible.
-					// every display should be able to fit three items, we shift horizontally to accomodate.
-					ox -= qm_shift * (item_size + SCALE1(MENU_ITEM_MARGIN));
-					for (int c = 0; c < quick->count; c++)
-					{
-						SDL_Rect item_rect = {ox, oy, item_size, item_size};
-						Entry *item = quick->items[c];
-
-						SDL_Color text_color = uintToColour(THEME_COLOR4_255);
-						uint32_t item_color = THEME_COLOR3;
-						uint32_t icon_color = THEME_COLOR4;
-
-						if(qm_row == 0 && qm_col == c) {
-							text_color = uintToColour(THEME_COLOR5_255);
-							item_color = THEME_COLOR1;
-							icon_color = THEME_COLOR5;
-						}
-
-						GFX_blitRectColor(ASSET_STATE_BG, screen, &item_rect, item_color);
-
-						char icon_path[MAX_PATH];
-						sprintf(icon_path, SDCARD_PATH "/.system/res/%s@%ix.png", item->name, FIXED_SCALE);
-						SDL_Surface* bmp = IMG_Load(icon_path);
-						if(bmp) {
-							SDL_Surface* converted = SDL_ConvertSurfaceFormat(bmp, screen->format->format, 0);
-							if (converted) {
-								SDL_FreeSurface(bmp);
-								bmp = converted;
-							}
-						}
-						if(bmp) {
-							// Calculate the position to center the source surface
-							int x = (item_rect.w - bmp->w) / 2;
-							int y = (item_rect.h - SCALE1(FONT_TINY + BUTTON_MARGIN) - bmp->h) / 2;
-							SDL_Rect destRect = { ox+x, oy+y, 0, 0 };  // width/height not required
-							//SDL_BlitSurface(bmp, NULL, screen, &destRect);
-
-							GFX_blitSurfaceColor(bmp, NULL, screen, &destRect, icon_color);
-						}
-
-						int w, h;
-						GFX_sizeText(font.tiny, item->name, SCALE1(FONT_TINY), &w, &h);
-						SDL_Rect text_rect = {item_rect.x + (item_size - w) / 2, item_rect.y + item_size - h - SCALE1(BUTTON_MARGIN), w, h};
-						GFX_blitText(font.tiny, item->name, SCALE1(FONT_TINY), text_color, screen, &text_rect);
-
-						ox += item_rect.w + SCALE1(MENU_ITEM_MARGIN);
-					}
-
-					// secondary
-					ox = SCALE1(PADDING + MENU_MARGIN_X);
-					ox += (screen->w - SCALE1(PADDING + MENU_MARGIN_X + MENU_MARGIN_X + PADDING) - SCALE1(quickActions->count * PILL_SIZE) - SCALE1((quickActions->count - 1) * MENU_TOGGLE_MARGIN))/2;
-					oy = SCALE1(PADDING + PILL_SIZE + BUTTON_MARGIN + MENU_MARGIN_Y + MENU_LINE_MARGIN) + item_size + item_extra_y / 2;
-					for (int c = 0; c < quickActions->count; c++) {
-						SDL_Rect item_rect = {ox, oy, SCALE1(PILL_SIZE), SCALE1(PILL_SIZE)};
-						Entry *item = quickActions->items[c];
-
-						SDL_Color text_color = uintToColour(THEME_COLOR4_255);
-						uint32_t item_color = THEME_COLOR3;
-						uint32_t icon_color = THEME_COLOR4;
-
-						if(qm_row == 1 && qm_col == c) {
-							text_color = uintToColour(THEME_COLOR5_255);
-							item_color = THEME_COLOR1;
-							icon_color = THEME_COLOR5;
-						}
-
-						GFX_blitPillColor(ASSET_WHITE_PILL, screen, &item_rect, item_color, RGB_WHITE);
-
-						int asset = ASSET_WIFI_OFF;
-						if (!strcmp(item->name,"Wifi"))
-							asset = CFG_getWifi() ? ASSET_WIFI : ASSET_WIFI_OFF;
-						else if (!strcmp(item->name,"Bluetooth"))
-							asset = CFG_getBluetooth() ? ASSET_BLUETOOTH : ASSET_BLUETOOTH_OFF;
-						else if (!strcmp(item->name,"Sleep"))
-							asset = ASSET_SUSPEND;
-						else if (!strcmp(item->name,"Reboot"))
-							asset = ASSET_RESTART;
-						else if (!strcmp(item->name,"Poweroff"))
-							asset = ASSET_POWEROFF;
-						else if (!strcmp(item->name,"Settings"))
-							asset = ASSET_SETTINGS;
-						else if (!strcmp(item->name,"Pak Store"))
-							asset = ASSET_STORE;
-
-						SDL_Rect rect;
-						GFX_assetRect(asset, &rect);
-						int x = item_rect.x;
-						int y = item_rect.y;
-						x += (SCALE1(PILL_SIZE) - rect.w) / 2;
-						y += (SCALE1(PILL_SIZE) - rect.h) / 2;
-
-						GFX_blitAssetColor(asset, NULL, screen, &(SDL_Rect){x,y}, icon_color);
-
-						ox += item_rect.w + SCALE1(MENU_TOGGLE_MARGIN);
-					}
-				}
-				lastScreen = SCREEN_QUICKMENU;
-			}
-			else if(startgame) {
+			if(startgame) {
 				//pilltargetY = +screen->w;
 				//animationdirection = ANIM_NONE;
 				GFX_clearLayers(LAYER_ALL);
@@ -3289,10 +2858,6 @@ int main (int argc, char *argv[]) {
 								else if(gsanimdir == SLIDE_RIGHT)
 									GFX_animateSurface(bmp,ax-screen->w,ay,ax,ay,aw,ah,CFG_getMenuTransitions() ? 80:20,0,255,LAYER_ALL);
 
-								GFX_drawOnLayer(bmp,ax,ay,aw,ah,1.0f,0,LAYER_BACKGROUND);
-							} else if(lastScreen == SCREEN_QUICKMENU) {
-								GFX_flipHidden();
-								GFX_drawOnLayer(blackBG,0,0,screen->w, screen->h,1.0f,0,LAYER_BACKGROUND);
 								GFX_drawOnLayer(bmp,ax,ay,aw,ah,1.0f,0,LAYER_BACKGROUND);
 							}
 							SDL_FreeSurface(bmp);  // Free after rendering
@@ -3582,19 +3147,7 @@ int main (int argc, char *argv[]) {
 				animationdirection = ANIM_NONE;
 			}
 
-			if(lastScreen == SCREEN_QUICKMENU) {
-				SDL_LockMutex(bgMutex);
-				if(folderbgchanged) {
-					if(folderbgbmp)
-						GFX_drawOnLayer(folderbgbmp,0, 0, screen->w, screen->h,1.0f,0,LAYER_BACKGROUND);
-					else {
-						GFX_clearLayers(LAYER_BACKGROUND);
-					}
-					folderbgchanged = 0;
-				}
-				SDL_UnlockMutex(bgMutex);
-			}
-			else if(lastScreen == SCREEN_GAMELIST) {
+			if(lastScreen == SCREEN_GAMELIST) {
 				SDL_LockMutex(bgMutex);
 				if(folderbgchanged) {
 					if(folderbgbmp)
@@ -3695,7 +3248,7 @@ int main (int argc, char *argv[]) {
 				setAnimationDraw(0);
 			}
 			SDL_UnlockMutex(animMutex);
-			if (currentScreen != SCREEN_GAMESWITCHER && currentScreen != SCREEN_QUICKMENU) {
+			if (currentScreen != SCREEN_GAMESWITCHER) {
 				if(is_scrolling && pillanimdone && currentAnimQueueSize < 1) {
 					int ow = GFX_blitHardwareGroup(screen, show_setting);
 					Entry* entry = top->entries->items[top->selected];

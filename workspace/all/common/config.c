@@ -54,13 +54,9 @@ void CFG_defaults(NextUISettings *cfg)
         .showBatteryPercent = CFG_DEFAULT_SHOWBATTERYPERCENT,
         .showMenuAnimations = CFG_DEFAULT_SHOWMENUANIMATIONS,
         .showMenuTransitions = CFG_DEFAULT_SHOWMENUTRANSITIONS,
-        .showRecents = CFG_DEFAULT_SHOWRECENTS,
-        .showTools = CFG_DEFAULT_SHOWTOOLS,
-        .showCollections = CFG_DEFAULT_SHOWCOLLECTIONS,
         .showGameArt = CFG_DEFAULT_SHOWGAMEART,
         .gameSwitcherScaling = CFG_DEFAULT_GAMESWITCHERSCALING,
         .defaultView = CFG_DEFAULT_VIEW,
-        .showQuickSwitcherUi = CFG_DEFAULT_SHOWQUICKWITCHERUI,
         .gameSwitcherCurtain = CFG_DEFAULT_GAMESWITCHER_CURTAIN,
 
         .muteLeds = CFG_DEFAULT_MUTELEDS,
@@ -266,21 +262,6 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb)
                 CFG_setMenuTransitions(temp_value);
                 continue;
             }
-            if (sscanf(line, "recents=%i", &temp_value) == 1)
-            {
-                CFG_setShowRecents((bool)temp_value);
-                continue;
-            }
-            if (sscanf(line, "tools=%i", &temp_value) == 1)
-            {
-                CFG_setShowTools((bool)temp_value);
-                continue;
-            }
-            if (sscanf(line, "collections=%i", &temp_value) == 1)
-            {
-                CFG_setShowCollections((bool)temp_value);
-                continue;
-            }
             if (sscanf(line, "gameart=%i", &temp_value) == 1)
             {
                 CFG_setShowGameArt((bool)temp_value);
@@ -380,11 +361,6 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb)
             if (sscanf(line, "defaultView=%i", &temp_value) == 1)
             {
                 CFG_setDefaultView(temp_value);
-                continue;
-            }
-            if (sscanf(line, "quickSwitcherUi=%i", &temp_value) == 1)
-            {
-                CFG_setShowQuickswitcherUI(temp_value);
                 continue;
             }
             if (sscanf(line, "wifiDiagnostics=%i", &temp_value) == 1)
@@ -815,39 +791,6 @@ void CFG_setThumbnailRadius(int radius)
     CFG_sync();
 }
 
-bool CFG_getShowRecents(void)
-{
-    return settings.showRecents;
-}
-
-void CFG_setShowRecents(bool show)
-{
-    settings.showRecents = show;
-    CFG_sync();
-}
-
-bool CFG_getShowTools(void)
-{
-    return settings.showTools;
-}
-
-void CFG_setShowTools(bool show)
-{
-    settings.showTools = show;
-    CFG_sync();
-}
-
-bool CFG_getShowCollections(void)
-{
-    return settings.showCollections;
-}
-
-void CFG_setShowCollections(bool show)
-{
-    settings.showCollections = show;
-    CFG_sync();
-}
-
 bool CFG_getShowGameArt(void)
 {
     return settings.showGameArt;
@@ -987,16 +930,6 @@ void CFG_setDefaultView(int view)
     CFG_sync();
 }
 
-bool CFG_getShowQuickswitcherUI(void)
-{
-    return settings.showQuickSwitcherUi;
-}
-
-void CFG_setShowQuickswitcherUI(bool on)
-{
-    settings.showQuickSwitcherUi = on;
-    CFG_sync();
-}
 
 bool CFG_getWifiDiagnostics(void)
 {
@@ -1398,18 +1331,6 @@ void CFG_get(const char *key, char *value)
     {
         sprintf(value, "%i", CFG_getMenuTransitions());
     }
-    else if (strcmp(key, "recents") == 0)
-    {
-        sprintf(value, "%i", CFG_getShowRecents());
-    }
-    else if (strcmp(key, "tools") == 0)
-    {
-        sprintf(value, "%i", CFG_getShowTools());
-    }
-	else if (strcmp(key, "collections") == 0)
-	{
-		sprintf(value, "%i", CFG_getShowCollections());
-    }
     else if (strcmp(key, "gameart") == 0)
     {
         sprintf(value, "%i", CFG_getShowGameArt());
@@ -1481,10 +1402,6 @@ void CFG_get(const char *key, char *value)
     else if (strcmp(key, "defaultView") == 0)
     {
         sprintf(value, "%i", (int)(CFG_getDefaultView()));
-    }
-    else if (strcmp(key, "quickSwitcherUi") == 0)
-    {
-        sprintf(value, "%i", (int)(CFG_getShowQuickswitcherUI()));
     }
     else if (strcmp(key, "wifiDiagnostics") == 0)
     {
@@ -1639,9 +1556,6 @@ void CFG_sync(void)
     fprintf(file, "batteryperc=%i\n", settings.showBatteryPercent);
     fprintf(file, "menuanim=%i\n", settings.showMenuAnimations);
     fprintf(file, "menutransitions=%i\n", settings.showMenuTransitions);
-    fprintf(file, "recents=%i\n", settings.showRecents);
-    fprintf(file, "tools=%i\n", settings.showTools);
-	fprintf(file, "collections=%i\n", settings.showCollections);
     fprintf(file, "gameart=%i\n", settings.showGameArt);
     fprintf(file, "showfoldernamesatroot=%i\n", settings.showFolderNamesAtRoot);
     fprintf(file, "screentimeout=%i\n", settings.screenTimeoutSecs);
@@ -1661,7 +1575,6 @@ void CFG_sync(void)
     fprintf(file, "artWidth=%i\n", (int)(settings.gameArtWidth * 100));
     fprintf(file, "wifi=%i\n", settings.wifi);
     fprintf(file, "defaultView=%i\n", settings.defaultView);
-    fprintf(file, "quickSwitcherUi=%i\n", settings.showQuickSwitcherUi);
     fprintf(file, "wifiDiagnostics=%i\n", settings.wifiDiagnostics);
     fprintf(file, "bluetooth=%i\n", settings.bluetooth);
     fprintf(file, "btDiagnostics=%i\n", settings.bluetoothDiagnostics);
@@ -1714,9 +1627,6 @@ void CFG_print(void)
     printf("\t\"batteryperc\": %i,\n", settings.showBatteryPercent);
     printf("\t\"menuanim\": %i,\n", settings.showMenuAnimations);
     printf("\t\"menutransitions\": %i,\n", settings.showMenuTransitions);
-    printf("\t\"recents\": %i,\n", settings.showRecents);
-    printf("\t\"tools\": %i,\n", settings.showTools);
-	printf("\t\"collections\": %i,\n", settings.showCollections);
     printf("\t\"gameart\": %i,\n", settings.showGameArt);
     printf("\t\"showfoldernamesatroot\": %i,\n", settings.showFolderNamesAtRoot);
     printf("\t\"screentimeout\": %i,\n", settings.screenTimeoutSecs);
@@ -1736,7 +1646,6 @@ void CFG_print(void)
     printf("\t\"artWidth\": %i,\n", (int)(settings.gameArtWidth * 100));
     printf("\t\"wifi\": %i,\n", settings.wifi);
     printf("\t\"defaultView\": %i,\n", settings.defaultView);
-    printf("\t\"quickSwitcherUi\": %i,\n", settings.showQuickSwitcherUi);
     printf("\t\"wifiDiagnostics\": %i,\n", settings.wifiDiagnostics);
     printf("\t\"bluetooth\": %i,\n", settings.bluetooth);
     printf("\t\"btDiagnostics\": %i,\n", settings.bluetoothDiagnostics);

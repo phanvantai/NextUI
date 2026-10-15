@@ -132,13 +132,9 @@ typedef struct
 	bool showBatteryPercent;
 	bool showMenuAnimations;
 	int showMenuTransitions; // 0=off, 1=snappy, 2=comfy
-	bool showRecents;
-	bool showTools;
-	bool showCollections;
 	bool showGameArt;
 	bool showFolderNamesAtRoot;
 	bool romsUseFolderBackground;
-	bool showQuickSwitcherUi;
 	int defaultView;
 
 	// Mute switch
@@ -222,8 +218,6 @@ typedef struct
 #define CFG_DEFAULT_SHOWBATTERYPERCENT false
 #define CFG_DEFAULT_SHOWMENUANIMATIONS true
 #define CFG_DEFAULT_SHOWMENUTRANSITIONS TRANSITION_SNAPPY
-#define CFG_DEFAULT_SHOWRECENTS true
-#define CFG_DEFAULT_SHOWCOLLECTIONS true
 #define CFG_DEFAULT_SHOWGAMEART false // custom: box art lives in the game switcher, the list stays readable
 #define CFG_DEFAULT_SHOWFOLDERNAMESATROOT true
 #define CFG_DEFAULT_GAMESWITCHERSCALING GFX_SCALE_FULLSCREEN
@@ -241,9 +235,7 @@ typedef struct
 #define CFG_DEFAULT_GAMEARTWIDTH 0.45
 #define CFG_DEFAULT_WIFI false
 #define CFG_DEFAULT_VIEW SCREEN_GAMESWITCHER // custom: boot into the game switcher
-#define CFG_DEFAULT_SHOWQUICKWITCHERUI true
 #define CFG_DEFAULT_WIFI_DIAG false
-#define CFG_DEFAULT_SHOWTOOLS true
 #define CFG_DEFAULT_BLUETOOTH false
 #define CFG_DEFAULT_BLUETOOTH_DIAG false
 #define CFG_DEFAULT_BLUETOOTH_MAXRATE 48000
@@ -350,14 +342,8 @@ void CFG_setMenuTransitions(int mode);
 int CFG_getThumbnailRadius(void);
 void CFG_setThumbnailRadius(int radius);
 // Show/hide recently played in the main menu.
-bool CFG_getShowRecents(void);
-void CFG_setShowRecents(bool show);
 // Show/hide tools folder in the main menu.
-bool CFG_getShowTools(void);
-void CFG_setShowTools(bool show);
 // Show/hide collections in the main menu.
-bool CFG_getShowCollections(void);
-void CFG_setShowCollections(bool show);
 // Show/hide game art in the main menu.
 bool CFG_getShowGameArt(void);
 void CFG_setShowGameArt(bool show);
@@ -408,8 +394,6 @@ void CFG_setWifi(bool on);
 int CFG_getDefaultView(void);
 void CFG_setDefaultView(int view);
 // Quick switcher UI painting on/off
-bool CFG_getShowQuickswitcherUI(void);
-void CFG_setShowQuickswitcherUI(bool on);
 // WiFi diagnostic logging on/off
 bool CFG_getWifiDiagnostics(void);
 void CFG_setWifiDiagnostics(bool on);

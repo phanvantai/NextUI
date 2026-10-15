@@ -148,7 +148,6 @@ extern int is_brickpro;
 ///////////////////////////////
 
 #define MAIN_ROW_COUNT (is_brick||is_brickpro ? 7 : 10)
-#define QUICK_SWITCHER_COUNT (is_brick||is_brickpro ? 3 : 4)
 #define PADDING (is_brick||is_brickpro ? 5 : 10)
 
 ///////////////////////////////

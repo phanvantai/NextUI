@@ -518,14 +518,6 @@ int main(int argc, char *argv[])
             []() -> std::any { return CFG_getShowFolderNamesAtRoot(); },
             [](const std::any &value) { CFG_setShowFolderNamesAtRoot(std::any_cast<bool>(value)); },
             []() { CFG_setShowFolderNamesAtRoot(CFG_DEFAULT_SHOWFOLDERNAMESATROOT);}});
-        appearanceItems.push_back(new MenuItem{ListItemType::Generic, "Show Recents", "Show \"Recently Played\" menu entry in game list.", {false, true}, on_off,
-            []() -> std::any { return CFG_getShowRecents(); },
-            [](const std::any &value) { CFG_setShowRecents(std::any_cast<bool>(value)); },
-            []() { CFG_setShowRecents(CFG_DEFAULT_SHOWRECENTS);}});
-        appearanceItems.push_back(new MenuItem{ListItemType::Generic, "Show Tools", "Show \"Tools\" menu entry in game list.", {false, true}, on_off,
-            []() -> std::any { return CFG_getShowTools(); },
-            [](const std::any &value) { CFG_setShowTools(std::any_cast<bool>(value)); },
-            []() { CFG_setShowTools(CFG_DEFAULT_SHOWTOOLS);}});
         appearanceItems.push_back(new MenuItem{ListItemType::Generic, "Show game art", "Show game artwork in the main menu", {false, true}, on_off,
             []() -> std::any { return CFG_getShowGameArt(); },
             [](const std::any &value) { CFG_setShowGameArt(std::any_cast<bool>(value)); },
@@ -534,10 +526,6 @@ int main(int argc, char *argv[])
             []() -> std::any { return CFG_getRomsUseFolderBackground(); },
             [](const std::any &value) { CFG_setRomsUseFolderBackground(std::any_cast<bool>(value)); },
             []() { CFG_setRomsUseFolderBackground(CFG_DEFAULT_ROMSUSEFOLDERBACKGROUND);}});
-        appearanceItems.push_back(new MenuItem{ListItemType::Generic, "Show Quickswitcher UI", "Show/hide Quickswitcher UI elements.\nWhen hidden, will only draw background images.", {false, true}, on_off,
-            []() -> std::any{ return CFG_getShowQuickswitcherUI(); },
-            [](const std::any &value){ CFG_setShowQuickswitcherUI(std::any_cast<bool>(value)); },
-            []() { CFG_setShowQuickswitcherUI(CFG_DEFAULT_SHOWQUICKWITCHERUI);}});
         appearanceItems.push_back(new MenuItem{ListItemType::Generic, "Game switcher curtain opacity", "Show/hide curtain overlay. Helps UI elements to \nstand out when using transparent backgrounds.", curtain_opacity_values, curtain_opacity_labels, 
             []() -> std::any{ return CFG_getGameSwitcherCurtain(); },
             [](const std::any &value){ CFG_setGameSwitcherCurtain(std::any_cast<int>(value)); },
@@ -658,8 +646,8 @@ int main(int argc, char *argv[])
             { CFG_setHaptics(std::any_cast<bool>(value)); },
             []() { CFG_setHaptics(CFG_DEFAULT_HAPTICS);}},
             new MenuItem{ListItemType::Generic, "Default view", "The initial view to show on boot",
-            {(int)SCREEN_GAMELIST, (int)SCREEN_GAMESWITCHER, (int)SCREEN_QUICKMENU},
-            {"Content List","Game Switcher","Quick Menu"},
+            {(int)SCREEN_GAMELIST, (int)SCREEN_GAMESWITCHER},
+            {"Content List","Game Switcher"},
             []() -> std::any { return CFG_getDefaultView(); },
             [](const std::any &value){ CFG_setDefaultView(std::any_cast<int>(value)); },
             []() { CFG_setDefaultView(CFG_DEFAULT_VIEW);}},
