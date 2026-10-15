@@ -10,6 +10,22 @@ version, bumps `VERSION` and tags the commit.
 
 ## Unreleased
 
+- Removed batmon (battery logging every second to SQLite on the SD card, only
+  read by the Battery app) and libbatmondb: no longer built, started or
+  signalled around sleep.
+- Removed the Battery, Clock, Files (NextCommander), Input and LedControl
+  tools from the build and the package. LEDs still follow the saved settings.
+- Removed the old quick menu, Collections, the Recently Played folder and the
+  launcher's simple mode, plus the Settings options that only drove them
+  (Show Recents, Show Tools, Show Quickswitcher UI, Default view: Quick Menu).
+  A stored defaultView of Quick Menu boots into the switcher.
+- The release build targets the Brick (tg5040) only.
+- Fix: opening the settings page from a list row past its length (eg. after
+  leaving the SNES folder) crashed NextUI, and closing it moved the list's
+  selection. The input code copied the old list's row into the new page.
+- Fix: games kept in only one of two collated folders (SUPA next to SFC) now
+  get their map.txt names in the game list.
+
 ## 0.5.0
 
 - Turning Wifi or Bluetooth on/off no longer freezes the UI (wifi_init.sh
