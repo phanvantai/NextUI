@@ -10,6 +10,8 @@ version, bumps `VERSION` and tags the commit.
 
 ## Unreleased
 
+## 0.5.1
+
 - Removed batmon (battery logging every second to SQLite on the SD card, only
   read by the Battery app) and libbatmondb: no longer built, started or
   signalled around sleep.
