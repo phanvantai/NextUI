@@ -1860,7 +1860,7 @@ static void loadLast(void) { // call after loading root directory
 
 ///////////////////////////////////////
 
-static void freeCollectionIcons(void);
+static void freeRowIcons(void);
 
 static void Menu_init(void) {
 	stack = Array_new(); // array of open Directories
@@ -1880,7 +1880,7 @@ static void Menu_quit(void) {
 	settingsActions = NULL;
 	EntryArray_free(switcher);
 	switcher = NULL;
-	freeCollectionIcons();
+	freeRowIcons();
 }
 
 ///////////////////////////////////////
@@ -1989,33 +1989,33 @@ static inline int getAnimationDraw(void) { return SDL_AtomicGet(&animationDrawAt
 static inline void setNeedDraw(int v) { SDL_AtomicSet(&needDrawAtomic, v); }
 static inline int getNeedDraw(void) { return SDL_AtomicGet(&needDrawAtomic); }
 
-// custom: a collection row can start with an icon, /Collections/.media/<name>.png
-// (same .media folder idea as box art). Loaded once, NULL when there's none.
-typedef struct CollectionIcon {
-	char* path; // the collection's .txt
+// custom: collection and system rows can start with an icon,
+// <Collections or Roms>/.icons/<row name>.png. Not .media/<name>.png, that one
+// is the big art shown with game art on. Loaded once, NULL when there's none.
+typedef struct RowIcon {
+	char* path; // the row's entry path
 	SDL_Surface* icon;
-} CollectionIcon;
-static Array* collection_icons = NULL; // CollectionIcon*
+} RowIcon;
+static Array* row_icons = NULL; // RowIcon*
 
 #define ICON_GAP SCALE1(BUTTON_PADDING / 2)
 
-static SDL_Surface* collectionIcon(Entry* entry) {
-	if (entry->type!=ENTRY_DIR || !isCollection(entry->path)) return NULL;
-	if (!collection_icons) collection_icons = Array_new();
-	for (int i=0; i<collection_icons->count; i++) {
-		CollectionIcon* item = collection_icons->items[i];
+static SDL_Surface* rowIcon(Entry* entry, char* name) {
+	if (entry->type!=ENTRY_DIR) return NULL;
+	char* dir = isCollection(entry->path) ? COLLECTIONS_PATH : isConsoleDir(entry->path) ? ROMS_PATH : NULL;
+	if (!dir) return NULL;
+
+	if (!row_icons) row_icons = Array_new();
+	for (int i=0; i<row_icons->count; i++) {
+		RowIcon* item = row_icons->items[i];
 		if (exactMatch(item->path, entry->path)) return item->icon;
 	}
 
-	char name[MAX_PATH];
-	strncpy(name, fileName(entry->path), sizeof(name) - 1);
-	name[sizeof(name) - 1] = '\0';
-	char* dot = strrchr(name, '.');
-	if (dot) *dot = '\0';
+	// by the name on the row, so SFC and SUPA (one collated row) share an icon
 	char icon_path[MAX_PATH];
-	snprintf(icon_path, sizeof(icon_path), "%s/.media/%s.png", COLLECTIONS_PATH, name);
+	snprintf(icon_path, sizeof(icon_path), "%s/.icons/%s.png", dir, name);
 
-	CollectionIcon* item = malloc(sizeof(CollectionIcon));
+	RowIcon* item = malloc(sizeof(RowIcon));
 	item->path = strdup(entry->path);
 	item->icon = NULL;
 	SDL_Surface* bmp = exists(icon_path) ? IMG_Load(icon_path) : NULL;
@@ -2024,7 +2024,7 @@ static SDL_Surface* collectionIcon(Entry* entry) {
 		SDL_FreeSurface(bmp);
 		if (item->icon) SDL_SetSurfaceBlendMode(item->icon, SDL_BLENDMODE_BLEND);
 	}
-	Array_push(collection_icons, item);
+	Array_push(row_icons, item);
 	return item->icon;
 }
 
@@ -2033,19 +2033,19 @@ static int iconWidth(SDL_Surface* icon) {
 	return icon ? icon->w + ICON_GAP : 0;
 }
 
-static void freeCollectionIcons(void) {
-	if (!collection_icons) return;
-	for (int i=0; i<collection_icons->count; i++) {
-		CollectionIcon* item = collection_icons->items[i];
+static void freeRowIcons(void) {
+	if (!row_icons) return;
+	for (int i=0; i<row_icons->count; i++) {
+		RowIcon* item = row_icons->items[i];
 		if (item->icon) SDL_FreeSurface(item->icon);
 		free(item->path);
 		free(item);
 	}
-	Array_free(collection_icons);
-	collection_icons = NULL;
+	Array_free(row_icons);
+	row_icons = NULL;
 }
 
-static void updatePillTextSurface(const char* entry_name, int move_w, SDL_Color text_color, SDL_Surface* icon) {
+static void updatePillTextSurface(const char* entry_name, int move_w, SDL_Color text_color, int indent) {
 	int crop_w = move_w - SCALE1(BUTTON_PADDING * 2);
 	if (crop_w <= 0) return;
 
@@ -2063,13 +2063,9 @@ static void updatePillTextSurface(const char* entry_name, int move_w, SDL_Color 
 		0, crop_rect.w, crop_rect.h, screen->format->BitsPerPixel, screen->format->format
 	);
 	if (cropped) {
-		// the pill sits on its own layer above the list, so the icon has to be
-		// part of the pill's text or the pill would cover it
-		if (icon) {
-			SDL_BlitSurface(icon, NULL, cropped, &(SDL_Rect){0, (cropped->h - icon->h) / 2});
-			crop_rect.w -= iconWidth(icon);
-		}
-		SDL_BlitSurface(converted, &crop_rect, cropped, &(SDL_Rect){iconWidth(icon), 0});
+		// indent: room for a row icon, which is drawn on the pill itself
+		crop_rect.w -= indent;
+		SDL_BlitSurface(converted, &crop_rect, cropped, &(SDL_Rect){indent, 0});
 	}
 	SDL_FreeSurface(converted);
 	if (!cropped) return;
@@ -3204,7 +3200,7 @@ int main (int argc, char *argv[]) {
 						if (entry_unique) // Only render if a unique name exists
 							trimSortingMeta(&entry_unique);
 
-						SDL_Surface* icon = collectionIcon(entry);
+						SDL_Surface* icon = rowIcon(entry, entry_name);
 						int icon_w = iconWidth(icon);
 
 						char display_name[256];
@@ -3227,8 +3223,7 @@ int main (int argc, char *argv[]) {
 						// TODO: Use actual font metrics to center, this only works in simple cases
 						const int text_offset_y = (SCALE1(PILL_SIZE) - text->h + 1) >> 1;
 						if (row_is_selected) {
-							// the scrolling text is drawn without the icon; collection names are short
-							is_scrolling = list_show_entry_names && !icon && GFX_textShouldScroll(font.large,display_name, max_width - SCALE1(BUTTON_PADDING*2), fontMutex);
+							is_scrolling = list_show_entry_names && GFX_textShouldScroll(font.large,display_name, max_width - SCALE1(BUTTON_PADDING*2) - icon_w, fontMutex);
 							GFX_resetScrollText();
 							bool should_animate = previous_depth == stack->count;
 							SDL_LockMutex(animMutex);
@@ -3238,9 +3233,12 @@ int main (int argc, char *argv[]) {
 							}
 							globalpill = SDL_CreateRGBSurfaceWithFormat(SDL_SWSURFACE, max_width, SCALE1(PILL_SIZE), FIXED_DEPTH, screen->format->format);
 							GFX_blitPillDark(ASSET_WHITE_PILL, globalpill, &(SDL_Rect){0,0, max_width, SCALE1(PILL_SIZE)});
+							// the pill is its own layer above the list and would cover the row's
+							// icon, so it carries the icon (and keeps it while the name scrolls)
+							if (icon) SDL_BlitSurface(icon, NULL, globalpill, &(SDL_Rect){SCALE1(BUTTON_PADDING), (SCALE1(PILL_SIZE) - icon->h) / 2});
 							globallpillW =  max_width;
 							SDL_UnlockMutex(animMutex);
-							updatePillTextSurface(entry_name, max_width, uintToColour(THEME_COLOR5_255), icon);
+							updatePillTextSurface(entry_name, max_width, uintToColour(THEME_COLOR5_255), icon_w);
 							AnimTask* task = malloc(sizeof(AnimTask));
 							task->startX = SCALE1(BUTTON_MARGIN);
 							task->startY = SCALE1(previousY+PADDING);
@@ -3449,7 +3447,8 @@ int main (int argc, char *argv[]) {
 
 					SDL_Color text_color = uintToColour(THEME_COLOR5_255);
 
-					int text_width = GFX_getTextWidth(font.large, entry_text, cached_display_name, available_width, SCALE1(BUTTON_PADDING * 2));
+					int icon_w = iconWidth(rowIcon(entry, entry->name));
+					int text_width = GFX_getTextWidth(font.large, entry_text, cached_display_name, available_width - icon_w, SCALE1(BUTTON_PADDING * 2)) + icon_w;
 					int max_width = MIN(available_width, text_width);
 					int text_offset_y = (SCALE1(PILL_SIZE) - TTF_FontHeight(font.large) + 1) >> 1;
 
@@ -3458,8 +3457,8 @@ int main (int argc, char *argv[]) {
 						GFX_scrollTextTexture(
 							font.large,
 							entry_text,
-							SCALE1(BUTTON_MARGIN + BUTTON_PADDING), SCALE1(PADDING + previous_row * PILL_SIZE) + text_offset_y,
-							max_width - SCALE1(BUTTON_PADDING * 2),
+							SCALE1(BUTTON_MARGIN + BUTTON_PADDING) + icon_w, SCALE1(PADDING + previous_row * PILL_SIZE) + text_offset_y,
+							max_width - SCALE1(BUTTON_PADDING * 2) - icon_w,
 							0,
 							text_color,
 							1,

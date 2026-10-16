@@ -15,8 +15,10 @@ version, bumps `VERSION` and tags the commit.
   line. Games keep the file's order and show it as "1. Name · GB", so the list
   doubles as a play order. A series prefix every game shares ("The Legend of
   Zelda: ") is dropped. Leaving a game comes back to its row.
-- A collection row shows an icon before its name when
-  `/Collections/.media/<name>.png` exists (48px on the Brick).
+- Collection and system rows show an icon before their name:
+  `/Collections/.icons/<name>.png` and `/Roms/.icons/<name>.png`, named after
+  the row (so SFC and SUPA share one), 48px on the Brick. Kept out of `.media`,
+  which holds the big art shown with game art on. Long names still scroll.
 
 ## 0.5.1
 
