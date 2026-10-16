@@ -242,8 +242,15 @@ static void getUniqueName(Entry* entry, char* out_name) {
 static int isConsoleDir(char* path);
 static void applyMapNames(Array* entries);
 
+// custom: a collection is /Collections/<name>.txt, one rom path per line (from
+// the SD card root). It shows as a row above the systems and keeps the file's
+// order, which is the order to play the games in.
+static int isCollection(char* path) {
+	return prefixMatch(COLLECTIONS_PATH "/", path) && suffixMatch(".txt", path);
+}
+
 static void Directory_index(Directory* self) {
-    int skip_index = exactMatch(FAUX_SETTINGS_PATH, self->path); // not alphabetized
+    int skip_index = exactMatch(FAUX_SETTINGS_PATH, self->path) || isCollection(self->path); // not alphabetized
 
     // custom: a console folder collates its sibling folders (SFC + SUPA), but
     // the map.txt below is only self->path's. Name every game from its own
@@ -365,6 +372,7 @@ static Array* getRoms(void);
 static Array* getDiscs(char* path);
 static Array* getEntries(char* path);
 static Array* getSettings(void);
+static Array* getCollection(char* path);
 
 static Directory* Directory_new(char* path, int selected) {
 	char display_name[256];
@@ -381,6 +389,9 @@ static Directory* Directory_new(char* path, int selected) {
 	}
 	else if (exactMatch(path, ROMS_PATH)) {
 		self->entries = getRoms();
+	}
+	else if (isCollection(path)) {
+		self->entries = getCollection(path);
 	}
 	else if (suffixMatch(".m3u", path)) {
 		self->entries = getDiscs(path);
@@ -879,12 +890,32 @@ static Array* getSettings(void) {
 	return entries;
 }
 
+static Array* getCollections(void) {
+	Array* collections = Array_new();
+	DIR* dh = opendir(COLLECTIONS_PATH);
+	if (!dh) return collections;
+
+	struct dirent* dp;
+	char full_path[256];
+	while ((dp = readdir(dh)) != NULL) {
+		if (hide(dp->d_name) || !suffixMatch(".txt", dp->d_name)) continue;
+		snprintf(full_path, sizeof(full_path), "%s/%s", COLLECTIONS_PATH, dp->d_name);
+		Array_push(collections, Entry_new(full_path, ENTRY_DIR)); // a fake directory, see getCollection()
+	}
+	closedir(dh);
+	EntryArray_sort(collections);
+	return collections;
+}
+
 static Array* getRoot(void) {
-	// custom: the game list shows only systems. Recents live in the game
-	// switcher, tools in the settings page. hasRecents() still has to run
-	// because it loads the recents array the switcher reads.
+	// custom: the game list shows collections, then systems. Recents live in
+	// the game switcher, tools in the settings page. hasRecents() still has to
+	// run because it loads the recents array the switcher reads.
 	hasRecents();
-	return getRoms();
+	Array* entries = getCollections();
+	Array* systems = getRoms();
+	Array_yoink(entries, systems);
+	return entries;
 }
 
 static Entry* entryFromRecent(Recent* recent)
@@ -1036,6 +1067,63 @@ static int getBoxArtPath(Entry* entry, char* out_path) {
 
 	snprintf(out_path, MAX_PATH, "%s/.media/%s.png", dir, name);
 	return exists(out_path);
+}
+
+// the system a collection row names after the game, eg. "GBA" for the MGBA folder
+static void getSystemTag(char* rom_path, char* out_tag) {
+	getEmuName(rom_path, out_tag);
+	if (exactMatch(out_tag, "MGBA")) strcpy(out_tag, "GBA");
+	else if (exactMatch(out_tag, "SUPA")) strcpy(out_tag, "SFC");
+}
+
+static Array* getCollection(char* path) {
+	Array* entries = Array_new();
+	FILE* file = fopen(path, "r");
+	if (!file) return entries;
+
+	char line[256];
+	while (fgets(line, sizeof(line), file)) {
+		normalizeNewline(line);
+		trimTrailingNewlines(line);
+		if (strlen(line)==0) continue;
+
+		char sd_path[MAX_PATH];
+		snprintf(sd_path, sizeof(sd_path), "%s%s%s", SDCARD_PATH, line[0]=='/' ? "" : "/", line);
+		if (!exists(sd_path)) continue;
+
+		char emu_name[MAX_PATH];
+		getEmuName(sd_path, emu_name);
+		if (!hasEmu(emu_name)) continue;
+
+		Array_push(entries, Entry_new(sd_path, ENTRY_ROM));
+	}
+	fclose(file);
+
+	applyMapNames(entries);
+
+	// a series prefix every game shares ("The Legend of Zelda: ") is just the
+	// collection's name again, drop it so the rest fits on the row
+	size_t series_len = 0;
+	if (entries->count>1) {
+		char* colon = strstr(((Entry*)entries->items[0])->name, ": ");
+		if (colon) series_len = colon + 2 - ((Entry*)entries->items[0])->name;
+		for (int i=1; i<entries->count && series_len; i++) {
+			if (strncmp(((Entry*)entries->items[i])->name, ((Entry*)entries->items[0])->name, series_len)) series_len = 0;
+		}
+	}
+
+	// "1. Pokémon Red · GB": the number is the play order
+	for (int i=0; i<entries->count; i++) {
+		Entry* entry = entries->items[i];
+		if (series_len) memmove(entry->name, entry->name + series_len, strlen(entry->name + series_len) + 1);
+		char tag[MAX_PATH];
+		getSystemTag(entry->path, tag);
+		char name[512];
+		snprintf(name, sizeof(name), "%i. %s · %s", i+1, entry->name, tag);
+		free(entry->name);
+		entry->name = strdup(name);
+	}
+	return entries;
 }
 
 static Array* getDiscs(char* path){
@@ -1562,7 +1650,8 @@ static void openDirectory(char* path, int auto_launch) {
 
 	// If this path is a direct subdirectory of top, push it on top of the stack
 	// If it isnt, we need to recreate the stack to keep navigation consistent
-	if(!top || isDirectSubdirectory(top, path)) {
+	// custom: collections are rows of the root list, not a /Collections folder
+	if(!top || isDirectSubdirectory(top, path) || (isCollection(path) && exactMatch(top->path, SDCARD_PATH))) {
 		int selected = 0;
 		int start = 0;
 		int end = 0;
@@ -1638,7 +1727,17 @@ static void Entry_open(Entry* self) {
 	recent_alias = self->name;  // yiiikes
 	if (self->type==ENTRY_ROM) {
 		startgame = 1;
-		openRom(self->path, NULL);
+		char* last = NULL;
+		char last_path[256];
+		if (isCollection(top->path)) {
+			// "1. Pokémon Red · GB" is only for the collection; recents (and so
+			// the switcher) take the name from map.txt instead
+			recent_alias = NULL;
+			// <collection>.txt/<rom file> brings loadLast() back to this row
+			snprintf(last_path, sizeof(last_path), "%s/%s", top->path, fileName(self->path));
+			last = last_path;
+		}
+		openRom(self->path, last);
 	}
 	else if (self->type==ENTRY_PAK) {
 		startgame = 1;
@@ -1727,7 +1826,9 @@ static void loadLast(void) { // call after loading root directory
 				Entry* entry = top->entries->items[i];
 
 				// NOTE: strlen() is required for collated_path, '\0' wasn't reading as NULL for some reason
-				if (exactMatch(entry->path, path) || (strlen(collated_path) && prefixMatch(collated_path, entry->path))) {
+				// a game in a collection is saved as <collection>.txt/<rom file>, its row holds the real rom path
+				if (exactMatch(entry->path, path) || (strlen(collated_path) && prefixMatch(collated_path, entry->path)) ||
+						(isCollection(top->path) && exactMatch(fileName(entry->path), fileName(path)))) {
 					top->selected = i;
 					if (i>=top->end) {
 						top->start = i;

@@ -10,6 +10,12 @@ version, bumps `VERSION` and tags the commit.
 
 ## Unreleased
 
+- Collections are back as rows above the systems in the game list. Each
+  `/Collections/<name>.txt` lists rom paths from the SD card root, one per
+  line. Games keep the file's order and show it as "1. Name · GB", so the list
+  doubles as a play order. A series prefix every game shares ("The Legend of
+  Zelda: ") is dropped. Leaving a game comes back to its row.
+
 ## 0.5.1
 
 - Removed batmon (battery logging every second to SQLite on the SD card, only
